@@ -148,3 +148,216 @@ function draw(){
  for(const p of powers)if(p.life>120||p.life%20<10)emoji(p.i,p.x,p.y-2,22);
  for(const e of enemies){X.globalAlpha=e.stun>0?.5:1;
   emoji(e.type=='monkey'?'🐒':e.type=='gremlin'?'👺':'🌩️',e.x,e.y-
+        let state='title',level=0,lives=3,score=0,time,P,plats,ladders,pieces,enemies,shots,powers,machine,fixed,need,msgT=0,msg='',puTimer,fx=[];
+const W=24,H=32;
+
+function loadLevel(){
+ const L=LAYOUTS[level%LAYOUTS.length],T=THEMES[level%THEMES.length];
+ plats=L.p.map(a=>({x:a[0],y:a[1],w:a[2]}));
+ ladders=L.l.map(a=>({x:a[0],t:a[1],b:a[2]}));
+ const top=plats.reduce((a,b)=>b.y<a.y?b:a);
+ machine={x:top.x+top.w/2-30,y:top.y,w:60,h:50};
+ need=4+Math.min(level,6);fixed=0;
+ pieces=[];for(let i=0;i<need;i++)pieces.push(placeRandom({s:'loose'}));
+ enemies=[];const sp=1+level*0.15;
+ const nm=1+Math.floor(level/2),ng=1+Math.floor((level+1)/2),nmu=level>=2?1:0;
+ for(let i=0;i<nm;i++)enemies.push(mkEnemy('monkey',sp));
+ for(let i=0;i<ng;i++)enemies.push(mkEnemy('gremlin',sp*1.2));
+ for(let i=0;i<nmu;i++)enemies.push(mkEnemy('murphy',sp*0.8));
+ shots=[];powers=[];fx=[];puTimer=300;
+ time=Math.max(60,100-level*4)*60;
+ resetPlayer();
+ msg=T.name+" — Fix the "+T.fix+"!";msgT=150;
+}
+function placeRandom(o){
+ const pl=plats[1+Math.floor(Math.random()*(plats.length-1))];
+ o.x=pl.x+10+Math.random()*(pl.w-40);o.y=pl.y;return o;
+}
+function mkEnemy(type,sp){
+ const pl=plats[1+Math.floor(Math.random()*(plats.length-1))];
+ return{type,x:pl.x+Math.random()*(pl.w-28),y:pl.y,pl,dir:Math.random()<.5?-1:1,sp,stun:0,cd:120+Math.random()*120,carry:null,ct:0};
+}
+function respawn(e){const n=mkEnemy(e.type,e.sp);Object.assign(e,n);e.stun=120}
+function resetPlayer(){P={x:30,y:490,vx:0,vy:0,climb:false,carry:null,inv:120,hammer:0,coffee:0,face:1,ground:true}}
+function hurt(){
+ if(P.inv>0||P.hammer>0)return;
+ lives--;
+ if(P.carry){P.carry.s='loose';placeRandom(P.carry);P.carry=null}
+ fx.push({x:P.x,y:P.y-20,t:40,s:'OUCH!'});
+ if(lives<=0){state='over';return}
+ resetPlayer();
+}
+function onLadder(){const cx=P.x+W/2;return ladders.find(l=>cx>l.x-4&&cx<l.x+28&&P.y>=l.t-2&&P.y<=l.b+2)}
+function hit(a,b,aw,ah,bw,bh){return a.x<b.x+bw&&a.x+aw>b.x&&a.y-ah<b.y&&a.y>b.y-bh}
+function update(){
+ if(msgT>0)msgT--;
+ if(--time<=0){
+  lives--;if(lives<=0){state='over';return}
+  loadLevel();msg="TIME'S UP! Try again!";msgT=120;return;
+ }
+ const spd=P.coffee>0?5:3;
+ // --- Player ---
+ const lad=onLadder();
+ if(lad&&((K.ArrowUp&&P.y>lad.t)||(K.ArrowDown&&P.y<lad.b))){P.climb=true;P.x=lad.x;P.vy=0}
+ if(P.climb){
+  if(!lad)P.climb=false;
+  else{
+   if(K.ArrowUp)P.y-=2.5;if(K.ArrowDown)P.y+=2.5;
+   if(P.y<=lad.t){P.y=lad.t;P.climb=false;P.ground=true}
+   if(P.y>=lad.b){P.y=lad.b;P.climb=false;P.ground=true}
+  }
+ }
+ if(!P.climb){
+  P.vx=(K.ArrowRight?spd:0)-(K.ArrowLeft?spd:0);if(P.vx)P.face=Math.sign(P.vx);
+  if(K.Space&&P.ground){P.vy=-10;P.ground=false}
+  P.vy+=0.55;const oy=P.y;P.x+=P.vx;P.y+=P.vy;
+  P.x=Math.max(0,Math.min(800-W,P.x));P.ground=false;
+  if(P.vy>=0)for(const pl of plats)
+   if(oy<=pl.y&&P.y>=pl.y&&P.x+W>pl.x&&P.x<pl.x+pl.w){P.y=pl.y;P.vy=0;P.ground=true}
+  if(P.y>540){P.inv=0;P.hammer=0;hurt();if(state!='play')return}
+ }
+ if(P.inv>0)P.inv--;if(P.hammer>0)P.hammer--;if(P.coffee>0)P.coffee--;
+ // --- Pieces ---
+ for(const pc of pieces)
+  if(pc.s=='loose'&&!P.carry&&hit(P,pc,W,H,22,22)){pc.s='player';P.carry=pc;score+=50}
+ if(P.carry){
+  P.carry.x=P.x;P.carry.y=P.y-H;
+  if(hit(P,machine,W,H,machine.w,machine.h)){
+   P.carry.s='done';P.carry=null;fixed++;score+=200;
+   fx.push({x:machine.x,y:machine.y-60,t:50,s:'+200 FIXED!'});
+   if(fixed>=need){score+=Math.floor(time/60)*20;state='clear';return}
+  }
+ }
+ // --- Enemies ---
+ for(const e of enemies){
+  if(e.stun>0){e.stun--;continue}
+  if(e.type=='gremlin'&&!e.carry){
+   const t=pieces.find(p=>p.s=='loose'&&p.y==e.pl.y&&p.x>e.pl.x-5&&p.x<e.pl.x+e.pl.w);
+   if(t){e.dir=Math.sign(t.x-e.x)||1;if(Math.abs(t.x-e.x)<6){e.carry=t;t.s='gremlin';e.ct=150}}
+  }
+  if(e.carry){
+   e.carry.x=e.x;e.carry.y=e.y-28;
+   if(--e.ct<=0){e.carry.s='loose';placeRandom(e.carry);fx.push({x:e.x,y:e.y-30,t:40,s:'POOF! hehehe'});e.carry=null}
+  }
+  e.x+=e.dir*e.sp;
+  if(e.x<e.pl.x){e.x=e.pl.x;e.dir=1}
+  if(e.x+28>e.pl.x+e.pl.w){e.x=e.pl.x+e.pl.w-28;e.dir=-1}
+  if(e.type=='monkey'&&--e.cd<=0){
+   e.cd=Math.max(60,150+Math.random()*120-level*8);
+   shots.push({x:e.x+14,y:e.y-20,vx:(P.x>e.x?1:-1)*(3+level*.2),vy:-4,i:'🔧'});
+  }
+  if(e.type=='murphy'&&--e.cd<=0){e.cd=200;shots.push({x:e.x+14,y:e.y-40,vx:0,vy:1,i:'⚡',drop:1})}
+  if(hit(P,e,W,H,28,28)){
+   if(P.hammer>0){score+=300;fx.push({x:e.x,y:e.y-30,t:40,s:'BONK! +300'});
+    if(e.carry){e.carry.s='loose';e.carry=null}respawn(e)}
+   else if(P.vy>0&&P.y-e.y<-10){
+    e.stun=180;P.vy=-7;score+=100;
+    if(e.carry){e.carry.s='loose';e.carry.y=e.y;e.carry=null}
+    fx.push({x:e.x,y:e.y-30,t:30,s:'+100'});
+   }
+   else{hurt();if(state!='play')return}
+  }
+ }
+ // --- Projectiles ---
+ for(const s of shots){s.x+=s.vx;s.y+=s.vy;s.vy+=s.drop?0.1:0.2;
+  if(hit(P,s,W,H,16,16)){s.y=999;hurt();if(state!='play')return}}
+ shots=shots.filter(s=>s.y<560&&s.x>-20&&s.x<820);
+ // --- Power-ups ---
+ if(--puTimer<=0){
+  puTimer=400+Math.random()*300;
+  const t=PW[Math.floor(Math.random()*PW.length)];
+  if(!(t.t=='life'&&Math.random()<.5))powers.push(placeRandom({...t,life:600}));
+ }
+ for(const p of powers){
+  p.life--;
+  if(hit(P,p,W,H,22,22)){
+   p.life=0;score+=50;
+   if(p.t=='clock'){time+=20*60;fx.push({x:p.x,y:p.y-30,t:50,s:'+20 SEC'})}
+   if(p.t=='hammer'){P.hammer=480;fx.push({x:p.x,y:p.y-30,t:50,s:'HAMMER TIME!'})}
+   if(p.t=='life'){lives++;fx.push({x:p.x,y:p.y-30,t:50,s:'1-UP'})}
+   if(p.t=='coffee'){P.coffee=480;fx.push({x:p.x,y:p.y-30,t:50,s:'CAFFEINATED!'})}
+   if(p.t=='wrench'){
+    enemies.forEach(e=>{e.stun=300;if(e.carry){e.carry.s='loose';e.carry=null}});
+    shots=[];score+=500;fx.push({x:p.x,y:p.y-30,t:60,s:'SUPER WRENCH! ALL STUNNED'});
+   }
+  }
+ }
+ powers=powers.filter(p=>p.life>0);
+ fx.forEach(f=>{f.t--;f.y-=.7});fx=fx.filter(f=>f.t>0);
+}
+function emoji(s,x,y,sz=24){X.font=sz+'px serif';X.textAlign='left';X.fillText(s,x,y)}
+function text(s,x,y,sz=16,c='#fff',a='center'){X.font='bold '+sz+'px monospace';X.fillStyle=c;X.textAlign=a;X.fillText(s,x,y)}
+
+function draw(){
+ const T=THEMES[level%THEMES.length];
+ X.fillStyle=T.bg;X.fillRect(0,0,800,520);
+ X.globalAlpha=.08;for(let i=0;i<8;i++)emoji(T.icon,i*110+20,60+(i%3)*150,60);X.globalAlpha=1;
+ // Ladders & platforms
+ X.fillStyle='#d4ac0d';
+ for(const l of ladders){X.fillRect(l.x,l.t,4,l.b-l.t);X.fillRect(l.x+20,l.t,4,l.b-l.t);
+  for(let y=l.t+8;y<l.b;y+=12)X.fillRect(l.x,y,24,3)}
+ for(const p of plats){X.fillStyle=T.plat;X.fillRect(p.x,p.y,p.w,10);
+  X.fillStyle='rgba(0,0,0,.3)';for(let x=p.x;x<p.x+p.w;x+=20)X.fillRect(x,p.y+5,10,5)}
+ // Broken machine
+ X.fillStyle='#555';X.fillRect(machine.x,machine.y-machine.h,machine.w,machine.h);
+ X.fillStyle='#2ecc71';X.fillRect(machine.x,machine.y-6,machine.w*fixed/need,6);
+ emoji(T.icon,machine.x+12,machine.y-14,30);
+ if(Math.floor(Date.now()/300)%2)emoji('💨',machine.x+40,machine.y-48,18);
+ text(T.fix,machine.x+30,machine.y-machine.h-6,11,'#ff0');
+ // Pieces & power-ups
+ for(const pc of pieces)if(pc.s!='done')emoji(T.pc,pc.x,pc.y-2,20);
+ for(const p of powers)if(p.life>120||p.life%20<10)emoji(p.i,p.x,p.y-2,22);
+ // Enemies
+ for(const e of enemies){
+  X.globalAlpha=e.stun>0?.5:1;
+  emoji(e.type=='monkey'?'🐒':e.type=='gremlin'?'👺':'🌩️',e.x,e.y-2,26);
+  if(e.stun>0)emoji('💫',e.x+4,e.y-28,14);
+  X.globalAlpha=1;
+ }
+ for(const s of shots)emoji(s.i,s.x,s.y,16);
+ // Player
+ if(!(P.inv>0&&Math.floor(P.inv/5)%2)){
+  emoji('👷',P.x-2,P.y-2,28);
+  if(P.hammer>0)emoji('🔨',P.x+(P.face>0?20:-16),P.y-14,20);
+  if(P.coffee>0)emoji('⚡',P.x+6,P.y-34,12);
+ }
+ // Floating text
+ for(const f of fx)text(f.s,f.x+12,f.y,14,'#ff0');
+ // HUD
+ X.fillStyle='rgba(0,0,0,.6)';X.fillRect(0,0,800,26);
+ const sec=Math.ceil(time/60);
+ text('SCORE '+score,10,18,15,'#fff','left');
+ text('LEVEL '+(level+1)+': '+T.name,400,18,15,'#0ff');
+ text('❤️x'+lives+'  ⏱'+sec,790,18,15,sec<=15?'#f44':'#fff','right');
+ text('PARTS '+fixed+'/'+need,10,512,13,'#0f0','left');
+ if(msgT>0)text(msg,400,250,24,'#ff0');
+}
+
+function overlay(lines){
+ X.fillStyle='rgba(0,0,0,.75)';X.fillRect(0,0,800,520);
+ lines.forEach((l,i)=>text(l[0],400,150+i*40,l[1]||18,l[2]||'#fff'));
+}
+
+function loop(){
+ if(state=='title'){
+  X.fillStyle='#111';X.fillRect(0,0,800,520);
+  overlay([['FIX-IT FRANKIE',44,'#ff0'],['Monkey Business',22,'#0ff'],
+   ['Monkeys 🐒, Gremlins 👺 & Murphy\'s Law 🌩️ broke everything!',15],
+   ['Grab the parts and bring them to the broken machine before time runs out.',14],
+   ['⏰ +Time  🔨 Hammer  ☕ Speed  💥 Stun All  ❤️ 1-Up',15,'#0f0'],
+   ['PRESS ENTER TO START',22,'#ff0']]);
+  if(K.Enter){K.Enter=0;level=0;lives=3;score=0;loadLevel();state='play'}
+ }else if(state=='play'){update();draw()}
+ else if(state=='clear'){
+  draw();overlay([['BUSINESS RESTORED!',36,'#0f0'],[THEMES[level%THEMES.length].name+' is open again!',20],
+   ['Score: '+score,20,'#ff0'],['PRESS ENTER FOR NEXT JOB',20,'#0ff']]);
+  if(K.Enter){K.Enter=0;level++;loadLevel();state='play'}
+ }else if(state=='over'){
+  draw();overlay([['GAME OVER',44,'#f44'],['"It must be gremlins..."',20],
+   ['Final Score: '+score+'   Level: '+(level+1),20,'#ff0'],['PRESS ENTER TO TRY AGAIN',20,'#0ff']]);
+  if(K.Enter){K.Enter=0;state='title'}
+ }
+ requestAnimationFrame(loop);
+}
+loop();
+</script></body></html>
