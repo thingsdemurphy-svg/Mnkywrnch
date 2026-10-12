@@ -1,288 +1,411 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>FIX-IT FRANKIE: Monkey Business</title>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Monkey Wrench</title>
 <style>
-body{margin:0;background:#111;display:flex;flex-direction:column;align-items:center;font-family:monospace;color:#eee}
-canvas{border:4px solid #444;margin-top:10px}
-p{margin:6px}
-</style></head><body>
-<canvas id="c" width="800" height="520"></canvas>
-<p>← → move · ↑ ↓ climb · SPACE jump · Stomp enemies · Carry parts to the broken machine · ENTER to start</p>
+  * { box-sizing: border-box; margin: 0; padding: 0;
+      -webkit-user-select: none; user-select: none;
+      -webkit-tap-highlight-color: transparent; touch-action: none; }
+  html, body { width: 100%; height: 100%; background: #000; overflow: hidden;
+      font-family: "Courier New", monospace; color: #fff; }
+  #wrap { position: relative; width: 100%; height: 100%;
+      display: flex; flex-direction: column; align-items: center; justify-content: flex-start; }
+  #screen { position: relative; margin-top: 6px; }
+  canvas { display: block; background: #000; image-rendering: pixelated;
+      image-rendering: crisp-edges; border: 3px solid #333; border-radius: 4px; }
+
+  /* Title / message overlay */
+  .overlay { position: absolute; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; text-align: center;
+      background: rgba(0,0,0,0.85); z-index: 5; }
+  .overlay.hidden { display: none; }
+  .logo { font-size: 38px; font-weight: bold; color: #ffd400; letter-spacing: 3px;
+      text-shadow: 3px 3px 0 #c40000, 6px 6px 0 #000; animation: bob 1.2s ease-in-out infinite; }
+  .sub { margin-top: 8px; color: #7fd7ff; font-size: 13px; }
+  .blink { margin-top: 26px; font-size: 18px; color: #fff; animation: blink 0.9s steps(2) infinite; }
+  .hint { margin-top: 18px; font-size: 11px; color: #aaa; line-height: 1.6; }
+  #hiScore { margin-top: 10px; color: #ff7fd1; font-size: 13px; }
+  .btn { margin-top: 18px; padding: 12px 26px; font-size: 18px; font-family: inherit;
+      font-weight: bold; color: #000; background: #ffd400; border: 3px solid #fff;
+      border-radius: 6px; box-shadow: 0 4px 0 #a07a00; }
+  .btn:active { transform: translateY(3px); box-shadow: 0 1px 0 #a07a00; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes bob { 50% { transform: translateY(-6px); } }
+
+  /* Touch controls */
+  #controls { width: 100%; max-width: 520px; display: flex; justify-content: space-between;
+      align-items: center; padding: 10px 14px; flex: 1; }
+  .dpad { display: grid; grid-template-columns: repeat(3, 58px); grid-template-rows: repeat(2, 58px); gap: 6px; }
+  .cbtn { display: flex; align-items: center; justify-content: center; font-size: 24px;
+      font-weight: bold; color: #fff; background: #222; border: 2px solid #555;
+      border-radius: 12px; }
+  .cbtn.on { background: #ffd400; color: #000; border-color: #fff; }
+  #bUp { grid-column: 2; grid-row: 1; }
+  #bLeft { grid-column: 1; grid-row: 2; }
+  #bDown { grid-column: 2; grid-row: 2; }
+  #bRight { grid-column: 3; grid-row: 2; }
+  .actions { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+  #bJump { width: 86px; height: 86px; border-radius: 50%; background: #c40000; border-color: #ff8080; font-size: 16px; }
+  #bJump.on { background: #ff4040; color: #fff; }
+  #bPause { width: 70px; height: 34px; font-size: 12px; border-radius: 8px; }
+  @media (hover: hover) and (pointer: fine) { #controls { display: none; } }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="screen">
+    <canvas id="game" width="480" height="360"></canvas>
+
+    <div id="title" class="overlay">
+      <div class="logo">MONKEY<br>WRENCH</div>
+      <div class="sub">Starring FIX-IT FRANKIE</div>
+      <div id="hiScore">HI-SCORE 000000</div>
+      <button id="startBtn" class="btn">START</button>
+      <div class="blink">TAP START</div>
+      <div class="hint">
+        Collect the parts &bull; Fix the machine<br>
+        Dodge wrenches, gremlins &amp; lightning<br>
+        Keys: Arrows/WASD move &bull; Space jump &bull; P pause
+      </div>
+    </div>
+
+    <div id="msg" class="overlay hidden">
+      <div id="msgTitle" class="logo" style="font-size:28px"></div>
+      <div id="msgText" class="sub"></div>
+      <button id="msgBtn" class="btn">CONTINUE</button>
+    </div>
+  </div>
+
+  <div id="controls">
+    <div class="dpad">
+      <div class="cbtn" id="bUp" data-k="up">&#9650;</div>
+      <div class="cbtn" id="bLeft" data-k="left">&#9664;</div>
+      <div class="cbtn" id="bDown" data-k="down">&#9660;</div>
+      <div class="cbtn" id="bRight" data-k="right">&#9654;</div>
+    </div>
+    <div class="actions">
+      <div class="cbtn" id="bPause" data-k="pause">PAUSE</div>
+      <div class="cbtn" id="bJump" data-k="jump">JUMP</div>
+    </div>
+  </div>
+</div>
+
 <script>
-window.onerror=(m,s,l)=>{alert('Error on line '+l+': '+m)};
-const C=document.getElementById('c'),X=C.getContext('2d');
-const K={};
-onkeydown=e=>{K[e.code]=1;if(['Space','ArrowUp','ArrowDown'].includes(e.code))e.preventDefault()};
-onkeyup=e=>K[e.code]=0;
+"use strict";
+/* ===== PART 1: CORE SETUP + INPUT ===== */
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+ctx.imageSmoothingEnabled = false;
+const W = 480, H = 360, TILE = 16;
 
-// Platforms: [x, y, width]   Ladders: [x, top, bottom]
-const LAYOUTS=[
- {p:[[0,490,800],[0,390,340],[420,390,380],[60,290,680],[0,190,300],[380,190,420],[250,90,300]],
-  l:[[700,390,490],[90,390,490],[200,290,390],[600,290,390],[120,190,290],[520,190,290],[400,90,190]]},
- {p:[[0,490,800],[100,390,600],[0,290,250],[330,290,470],[150,190,500],[0,90,200],[600,90,200]],
-  l:[[130,390,490],[640,390,490],[180,290,390],[450,290,390],[220,190,290],[560,190,290],[100,90,190],[660,90,190]]},
- {p:[[0,490,800],[0,390,250],[300,390,200],[550,390,250],[0,290,800],[100,190,250],[450,190,250],[275,90,250]],
-  l:[[60,390,490],[380,390,490],[720,390,490],[200,290,390],[600,290,390],[150,190,290],[600,190,290],[300,90,190],[480,90,190]]},
- {p:[[0,490,800],[50,390,700],[0,290,350],[450,290,350],[100,190,600],[300,90,200]],
-  l:[[80,390,490],[700,390,490],[300,290,390],[480,290,390],[150,190,290],[650,190,290],[340,90,190],[440,90,190]]}
-];
-const THEMES=[
- {name:"Joe's Diner",fix:"Grill",icon:"🍳",bg:"#3b1f1f",plat:"#c0392b",pc:"⚙️"},
- {name:"Mama Mia Pizzeria",fix:"Pizza Oven",icon:"🍕",bg:"#2b2b14",plat:"#27ae60",pc:"🔩"},
- {name:"Suds Laundromat",fix:"Washer",icon:"🧺",bg:"#14263b",plat:"#2980b9",pc:"⚙️"},
- {name:"ByteCorp Office",fix:"Copy Machine",icon:"🖨️",bg:"#222",plat:"#7f8c8d",pc:"🔌"},
- {name:"Big Burger Barn",fix:"Soda Fountain",icon:"🥤",bg:"#3b2a10",plat:"#e67e22",pc:"🔩"},
- {name:"Speedy Car Wash",fix:"Brush Motor",icon:"🚗",bg:"#102b2b",plat:"#16a085",pc:"⚙️"}
-];
-const PW=[{t:'clock',i:'⏰'},{t:'hammer',i:'🔨'},{t:'life',i:'❤️'},{t:'coffee',i:'☕'},{t:'wrench',i:'💥'}];
-let state='title',level=0,lives=3,score=0,time,P,plats,ladders,pieces,enemies,shots,powers,machine,fixed,need,msgT=0,msg='',puTimer,fx=[];
-const W=24,H=32;
+const Game = {
+  state: "title",          // title | playing | paused | levelDone | gameOver
+  score: 0, lives: 3, level: 1, time: 0,
+  hiScore: parseInt(localStorage.getItem("mw_hi") || "0", 10),
+  frame: 0, shake: 0
+};
+document.getElementById("hiScore").textContent =
+  "HI-SCORE " + String(Game.hiScore).padStart(6, "0");
 
-function loadLevel(){
- const L=LAYOUTS[level%LAYOUTS.length],T=THEMES[level%THEMES.length];
- plats=L.p.map(a=>({x:a[0],y:a[1],w:a[2]}));
- ladders=L.l.map(a=>({x:a[0],t:a[1],b:a[2]}));
- const top=plats.reduce((a,b)=>b.y<a.y?b:a);
- machine={x:top.x+top.w/2-30,y:top.y,w:60,h:50};
- need=4+Math.min(level,6);fixed=0;
- pieces=[];for(let i=0;i<need;i++)pieces.push(placeRandom({s:'loose'}));
- enemies=[];const sp=1+level*0.15;
- const nm=1+Math.floor(level/2),ng=1+Math.floor((level+1)/2),nmu=level>=2?1:0;
- for(let i=0;i<nm;i++)enemies.push(mkEnemy('monkey',sp));
- for(let i=0;i<ng;i++)enemies.push(mkEnemy('gremlin',sp*1.2));
- for(let i=0;i<nmu;i++)enemies.push(mkEnemy('murphy',sp*0.8));
- shots=[];powers=[];fx=[];puTimer=300;
- time=Math.max(60,100-level*4)*60;
- resetPlayer();
- msg=T.name+" — Fix the "+T.fix+"!";msgT=150;
+/* ---- Input state ---- */
+const Input = { left: false, right: false, up: false, down: false, jump: false,
+                jumpPressed: false, pausePressed: false };
+
+function setKey(k, down) {
+  if (k === "jump") { if (down && !Input.jump) Input.jumpPressed = true; Input.jump = down; return; }
+  if (k === "pause") { if (down) Input.pausePressed = true; return; }
+  if (k in Input) Input[k] = down;
 }
-function placeRandom(o){
- const pl=plats[1+Math.floor(Math.random()*(plats.length-1))];
- o.x=pl.x+10+Math.random()*(pl.w-40);o.y=pl.y;return o;
+
+/* Keyboard */
+const KEYMAP = { ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right",
+  ArrowUp: "up", KeyW: "up", ArrowDown: "down", KeyS: "down",
+  Space: "jump", KeyZ: "jump", KeyP: "pause", Escape: "pause" };
+window.addEventListener("keydown", e => {
+  const k = KEYMAP[e.code]; if (!k) return;
+  e.preventDefault(); if (!e.repeat) setKey(k, true); else if (k !== "jump" && k !== "pause") setKey(k, true);
+});
+window.addEventListener("keyup", e => { const k = KEYMAP[e.code]; if (k) { e.preventDefault(); setKey(k, false); } });
+
+/* Touch buttons (pointer events work on iOS, Android, desktop) */
+document.querySelectorAll(".cbtn").forEach(btn => {
+  const k = btn.dataset.k;
+  const on = e => { e.preventDefault(); btn.classList.add("on"); setKey(k, true);
+                    if (typeof unlockAudio === "function") unlockAudio(); };
+  const off = e => { e.preventDefault(); btn.classList.remove("on"); setKey(k, false); };
+  btn.addEventListener("pointerdown", on);
+  btn.addEventListener("pointerup", off);
+  btn.addEventListener("pointercancel", off);
+  btn.addEventListener("pointerleave", off);
+  btn.addEventListener("contextmenu", e => e.preventDefault());
+});
+/* Release everything if the app loses focus */
+window.addEventListener("blur", () => {
+  ["left","right","up","down","jump"].forEach(k => Input[k] = false);
+  document.querySelectorAll(".cbtn.on").forEach(b => b.classList.remove("on"));
+});
+/* Block page scrolling / zoom gestures */
+document.addEventListener("touchmove", e => e.preventDefault(), { passive: false });
+document.addEventListener("gesturestart", e => e.preventDefault());
+
+/* ---- Responsive scaling ---- */
+function resize() {
+  const ctrlH = window.matchMedia("(hover: hover) and (pointer: fine)").matches ? 20 : 220;
+  const scale = Math.min((window.innerWidth - 12) / W, (window.innerHeight - ctrlH) / H);
+  const s = Math.max(0.5, scale);
+  const scr = document.getElementById("screen");
+  canvas.style.width = Math.floor(W * s) + "px";
+  canvas.style.height = Math.floor(H * s) + "px";
+  scr.style.width = canvas.style.width;
+  scr.style.height = canvas.style.height;
 }
-function mkEnemy(type,sp){
- const pl=plats[1+Math.floor(Math.random()*(plats.length-1))];
- return{type,x:pl.x+Math.random()*(pl.w-28),y:pl.y,pl,dir:Math.random()<.5?-1:1,sp,stun:0,cd:120+Math.random()*120,carry:null,ct:0};
+window.addEventListener("resize", resize);
+window.addEventListener("orientationchange", () => setTimeout(resize, 200));
+resize();
+
+/* ---- Overlay helpers ---- */
+const titleEl = document.getElementById("title");
+const msgEl = document.getElementById("msg");
+let msgCallback = null;
+function showMessage(title, text, btnLabel, cb) {
+  document.getElementById("msgTitle").innerHTML = title;
+  document.getElementById("msgText").innerHTML = text;
+  document.getElementById("msgBtn").textContent = btnLabel || "CONTINUE";
+  msgCallback = cb || null;
+  msgEl.classList.remove("hidden");
 }
-function respawn(e){const n=mkEnemy(e.type,e.sp);Object.assign(e,n);e.stun=120}
-function resetPlayer(){P={x:30,y:490,vx:0,vy:0,climb:false,carry:null,inv:120,hammer:0,coffee:0,face:1,ground:true}}
-function hurt(){
- if(P.inv>0||P.hammer>0)return;
- lives--;
- if(P.carry){P.carry.s='loose';placeRandom(P.carry);P.carry=null}
- fx.push({x:P.x,y:P.y-20,t:40,s:'OUCH!'});
- if(lives<=0){state='over';return}
- resetPlayer();
-}
-function onLadder(){const cx=P.x+W/2;return ladders.find(l=>cx>l.x-4&&cx<l.x+28&&P.y>=l.t-2&&P.y<=l.b+2)}
-function hit(a,b,aw,ah,bw,bh){return a.x<b.x+bw&&a.x+aw>b.x&&a.y-ah<b.y&&a.y>b.y-bh}
-function update(){
- if(msgT>0)msgT--;
- if(--time<=0){
-  lives--;if(lives<=0){state='over';return}
-  loadLevel();msg="TIME'S UP! Try again!";msgT=120;return;
- }
- const spd=P.coffee>0?5:3;
- // --- Player ---
- const lad=onLadder();
- if(lad&&((K.ArrowUp&&P.y>lad.t)||(K.ArrowDown&&P.y<lad.b))){P.climb=true;P.x=lad.x;P.vy=0}
- if(P.climb){
-  if(!lad)P.climb=false;
-  else{
-   if(K.ArrowUp)P.y-=2.5;if(K.ArrowDown)P.y+=2.5;
-   if(P.y<=lad.t){P.y=lad.t;P.climb=false;P.ground=true}
-   if(P.y>=lad.b){P.y=lad.b;P.climb=false;P.ground=true}
+function hideMessage() { msgEl.classList.add("hidden"); }
+
+document.getElementById("msgBtn").addEventListener("click", () => {
+  hideMessage(); if (typeof unlockAudio === "function") unlockAudio();
+  const cb = msgCallback; msgCallback = null; if (cb) cb();
+});
+document.getElementById("startBtn").addEventListener("click", () => {
+  if (typeof unlockAudio === "function") unlockAudio();
+  titleEl.classList.add("hidden");
+  if (typeof startGame === "function") startGame();
+});
+
+/* Animated title-screen background (runs until the game starts) */
+function drawTitleBG() {
+  Game.frame++;
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+  for (let i = 0; i < 40; i++) {
+    const x = (i * 53 + Game.frame * (1 + i % 3)) % W, y = (i * 97) % H;
+    ctx.fillStyle = i % 4 ? "#334" : "#ffd400"; ctx.fillRect(x, y, 2, 2);
   }
- }
- if(!P.climb){
-  P.vx=(K.ArrowRight?spd:0)-(K.ArrowLeft?spd:0);if(P.vx)P.face=Math.sign(P.vx);
-  if(K.Space&&P.ground){P.vy=-10;P.ground=false}
-  P.vy+=0.55;const oy=P.y;P.x+=P.vx;P.y+=P.vy;
-  P.x=Math.max(0,Math.min(800-W,P.x));P.ground=false;
-  if(P.vy>=0)for(const pl of plats)
-   if(oy<=pl.y&&P.y>=pl.y&&P.x+W>pl.x&&P.x<pl.x+pl.w){P.y=pl.y;P.vy=0;P.ground=true}
-  if(P.y>540){P.inv=0;P.hammer=0;hurt();if(state!='play')return}
- }
- if(P.inv>0)P.inv--;if(P.hammer>0)P.hammer--;if(P.coffee>0)P.coffee--;
- // --- Pieces ---
- for(const pc of pieces)
-  if(pc.s=='loose'&&!P.carry&&hit(P,pc,W,H,22,22)){pc.s='player';P.carry=pc;score+=50}
- if(P.carry){
-  P.carry.x=P.x;P.carry.y=P.y-H;
-  if(hit(P,machine,W,H,machine.w,machine.h)){
-   P.carry.s='done';P.carry=null;fixed++;score+=200;
-   fx.push({x:machine.x,y:machine.y-60,t:50,s:'+200 FIXED!'});
-   if(fixed>=need){score+=Math.floor(time/60)*20;state='clear';return}
-  }
- }
- // --- Enemies ---
- for(const e of enemies){
-  if(e.stun>0){e.stun--;continue}
-  if(e.type=='gremlin'&&!e.carry){
-   const t=pieces.find(p=>p.s=='loose'&&p.y==e.pl.y&&p.x>e.pl.x-5&&p.x<e.pl.x+e.pl.w);
-   if(t){e.dir=Math.sign(t.x-e.x)||1;if(Math.abs(t.x-e.x)<6){e.carry=t;t.s='gremlin';e.ct=150}}
-  }
-  if(e.carry){
-   e.carry.x=e.x;e.carry.y=e.y-28;
-   if(--e.ct<=0){e.carry.s='loose';placeRandom(e.carry);fx.push({x:e.x,y:e.y-30,t:40,s:'POOF! hehehe'});e.carry=null}
-  }
-  e.x+=e.dir*e.sp;
-  if(e.x<e.pl.x){e.x=e.pl.x;e.dir=1}
-  if(e.x+28>e.pl.x+e.pl.w){e.x=e.pl.x+e.pl.w-28;e.dir=-1}
-  if(e.type=='monkey'&&--e.cd<=0){
-   e.cd=Math.max(60,150+Math.random()*120-level*8);
-   shots.push({x:e.x+14,y:e.y-20,vx:(P.x>e.x?1:-1)*(3+level*.2),vy:-4,i:'🔧'});
-  }
-  if(e.type=='murphy'&&--e.cd<=0){e.cd=200;shots.push({x:e.x+14,y:e.y-40,vx:0,vy:1,i:'⚡',drop:1})}
-  if(hit(P,e,W,H,28,28)){
-   if(P.hammer>0){score+=300;fx.push({x:e.x,y:e.y-30,t:40,s:'BONK! +300'});
-    if(e.carry){e.carry.s='loose';e.carry=null}respawn(e)}
-   else if(P.vy>0&&P.y-e.y<-10){
-    e.stun=180;P.vy=-7;score+=100;
-    if(e.carry){e.carry.s='loose';e.carry.y=e.y;e.carry=null}
-    fx.push({x:e.x,y:e.y-30,t:30,s:'+100'});
-   }
-   else{hurt();if(state!='play')return}
-  }
- }
- // --- Projectiles ---
- for(const s of shots){s.x+=s.vx;s.y+=s.vy;s.vy+=s.drop?0.1:0.2;
-  if(hit(P,s,W,H,16,16)){s.y=999;hurt();if(state!='play')return}}
- shots=shots.filter(s=>s.y<560&&s.x>-20&&s.x<820);
- // --- Power-ups ---
- if(--puTimer<=0){
-  puTimer=400+Math.random()*300;
-  const t=PW[Math.floor(Math.random()*PW.length)];
-  if(!(t.t=='life'&&Math.random()<.5))powers.push(placeRandom({...t,life:600}));
- }
- for(const p of powers){
-  p.life--;
-  if(hit(P,p,W,H,22,22)){
-   p.life=0;score+=50;
-   if(p.t=='clock'){time+=20*60;fx.push({x:p.x,y:p.y-30,t:50,s:'+20 SEC'})}
-   if(p.t=='hammer'){P.hammer=480;fx.push({x:p.x,y:p.y-30,t:50,s:'HAMMER TIME!'})}
-   if(p.t=='life'){lives++;fx.push({x:p.x,y:p.y-30,t:50,s:'1-UP'})}
-   if(p.t=='coffee'){P.coffee=480;fx.push({x:p.x,y:p.y-30,t:50,s:'CAFFEINATED!'})}
-   if(p.t=='wrench'){
-    enemies.forEach(e=>{e.stun=300;if(e.carry){e.carry.s='loose';e.carry=null}});
-    shots=[];score+=500;fx.push({x:p.x,y:p.y-30,t:60,s:'SUPER WRENCH! ALL STUNNED'});
-   }
-  }
- }
- powers=powers.filter(p=>p.life>0);
- fx.forEach(f=>{f.t--;f.y-=.7});fx=fx.filter(f=>f.t>0);
+  ctx.fillStyle = "#c40000";
+  for (let y = 60; y < H; y += 70) ctx.fillRect(0, y, W, 6);
+  if (Game.state === "title") requestAnimationFrame(drawTitleBG);
 }
-function emoji(s,x,y,sz=24){X.font=sz+'px serif';X.textAlign='left';X.fillText(s,x,y)}
-function text(s,x,y,sz=16,c='#fff',a='center'){X.font='bold '+sz+'px monospace';X.fillStyle=c;X.textAlign=a;X.fillText(s,x,y)}
+drawTitleBG();
+/* ===== END OF PART 1 — paste Part 2 directly below this line ===== */
 
-function draw(){
- const T=THEMES[level%THEMES.length];
- X.fillStyle=T.bg;X.fillRect(0,0,800,520);
- X.globalAlpha=.08;for(let i=0;i<8;i++)emoji(T.icon,i*110+20,60+(i%3)*150,60);X.globalAlpha=1;
- // Ladders & platforms
- X.fillStyle='#d4ac0d';
- for(const l of ladders){X.fillRect(l.x,l.t,4,l.b-l.t);X.fillRect(l.x+20,l.t,4,l.b-l.t);
-  for(let y=l.t+8;y<l.b;y+=12)X.fillRect(l.x,y,24,3)}
- for(const p of plats){X.fillStyle=T.plat;X.fillRect(p.x,p.y,p.w,10);
-  X.fillStyle='rgba(0,0,0,.3)';for(let x=p.x;x<p.x+p.w;x+=20)X.fillRect(x,p.y+5,10,5)}
- // Broken machine
- X.fillStyle='#555';X.fillRect(machine.x,machine.y-machine.h,machine.w,machine.h);
- X.fillStyle='#2ecc71';X.fillRect(machine.x,machine.y-6,machine.w*fixed/need,6);
- emoji(T.icon,machine.x+12,machine.y-14,30);
- if(Math.floor(Date.now()/300)%2)emoji('💨',machine.x+40,machine.y-48,18);
- text(T.fix,machine.x+30,machine.y-machine.h-6,11,'#ff0');
- // Pieces & power-ups
- for(const pc of pieces)if(pc.s!='done')emoji(T.pc,pc.x,pc.y-2,20);
- for(const p of powers)if(p.life>120||p.life%20<10)emoji(p.i,p.x,p.y-2,22);
- // Enemies
- for(const e of enemies){
-  X.globalAlpha=e.stun>0?.5:1;
-  emoji(e.type=='monkey'?'🐒':e.type=='gremlin'?'👺':'🌩️',e.x,e.y-2,26);
-  if(e.stun>0)emoji('💫',e.x+4,e.y-28,14);
-  X.globalAlpha=1;
- }
- for(const s of shots)emoji(s.i,s.x,s.y,16);
- // Player
- if(!(P.inv>0&&Math.floor(P.inv/5)%2)){
-  emoji('👷',P.x-2,P.y-2,28);
-  if(P.hammer>0)emoji('🔨',P.x+(P.face>0?20:-16),P.y-14,20);
-  if(P.coffee>0)emoji('⚡',P.x+6,P.y-34,12);
- }
- // Floating text
- for(const f of fx)text(f.s,f.x+12,f.y,14,'#ff0');
- // HUD
- X.fillStyle='rgba(0,0,0,.6)';X.fillRect(0,0,800,26);
- const sec=Math.ceil(time/60);
- text('SCORE '+score,10,18,15,'#fff','left');
- text('LEVEL '+(level+1)+': '+T.name,400,18,15,'#0ff');
- text('❤️x'+lives+'  ⏱'+sec,790,18,15,sec<=15?'#f44':'#fff','right');
- text('PARTS '+fixed+'/'+need,10,512,13,'#0f0','left');
- if(msgT>0)text(msg,400,250,24,'#ff0');
+/* ===== PART 2: SPRITES + ANIMATION + EFFECTS ===== */
+const SCALE = 2;
+const PAL = { Y:"#ffd400", S:"#ffc890", B:"#2a5cff", R:"#e02020", K:"#5a2e0a",
+  E:"#000", W:"#fff", N:"#7a4316", T:"#e0a868", G:"#3ec43e", D:"#1d6b1d",
+  r:"#ff2020", L:"#c8c8d0", M:"#707080", O:"#ff8c00" };
+
+function makeSprite(rows, swap) {
+  const h = rows.length, w = rows[0].length;
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const g = c.getContext("2d");
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let ch = rows[y][x]; if (!ch) continue;
+    if (swap && swap[ch]) ch = swap[ch];
+    if (PAL[ch]) { g.fillStyle = PAL[ch]; g.fillRect(x, y, 1, 1); }
+  }
+  return c;
 }
 
-function overlay(lines){
- X.fillStyle='rgba(0,0,0,.75)';X.fillRect(0,0,800,520);
- lines.forEach((l,i)=>text(l[0],400,150+i*40,l[1]||18,l[2]||'#fff'));
+/* ---- Frankie 12x16 ---- */
+const F_HEAD = ["....YYYY....","...YYYYYY...","..YYYYYYYYYY","...SSSSSS...",
+                "...SSSESS...","...SSSSSSS..","...SSKKKS...","....SSSS...."];
+const F_BACK = ["....YYYY....","...YYYYYY...","..YYYYYYYY..","...SSSSSS...",
+                "...SSSSSS...","...SSSSSS...","...SSSSSS...","....SSSS...."];
+const F_ARMD = ["..RRBRRBRR..",".SRRBBBBRRS.",".S.BBYBBB.S.","...BBBBBB..."];
+const F_ARMU = ["S.RRBRRBRR.S","SRRRBBBBRRRS","...BBYBBB...","...BBBBBB..."];
+const F_LEG = {
+  stand:["...BB..BB...","...BB..BB...","...BB..BB...","..KKK..KKK.."],
+  walk1:["..BB....BB..",".BB......BB.",".BB......BB.","KKK......KKK"],
+  walk2:["....BBBB....","....BBBB....","....BBBB....","...KKKKKK..."],
+  jump: ["..BB....BB..","..BB....BB..",".KKK....KKK.","............"]
+};
+const FR = {
+  stand: makeSprite([...F_HEAD,...F_ARMD,...F_LEG.stand]),
+  walk1: makeSprite([...F_HEAD,...F_ARMD,...F_LEG.walk1]),
+  walk2: makeSprite([...F_HEAD,...F_ARMD,...F_LEG.walk2]),
+  jump:  makeSprite([...F_HEAD,...F_ARMU,...F_LEG.jump]),
+  climb1:makeSprite([...F_BACK,...F_ARMU,...F_LEG.walk1]),
+  climb2:makeSprite([...F_BACK,...F_ARMU,...F_LEG.stand])
+};
+const FRANKIE_W = 24, FRANKIE_H = 32;
+
+/* ---- Monkey 14x14 ---- */
+const M_HEAD = ["....NNNNNN....","...NNNNNNNN...","..NNTTNNTTNN..",".TNTETTTTETNT.",
+                ".TNTTTTTTTTNT.","..NNTTKKTTNN..","...NNTTTTNN...","....NNNNNN...."];
+const M_FEET = ["....NN..NN....","...TTT..TTT...",".............."];
+const MK = {
+  idle: makeSprite([...M_HEAD,"..NNNNNNNNNN..",".NN.NNTTNN.NN.",".TT.NNTTNN.TT.",...M_FEET]),
+  throw:makeSprite([...M_HEAD,"TT..NNNNNN..TT",".NN.NNTTNN.NN.","..NNNNTTNNNN..",...M_FEET])
+};
+const MONKEY_W = 28, MONKEY_H = 28;
+
+/* ---- Gremlin 12x12 ---- */
+const G_TOP = ["G..........G","GG..GGGG..GG",".GGGGGGGGGG.","..GrGGGGrG..","..GGGGGGGG..",
+               "..GWDWDWDG..","...GGGGGG...","..DGGGGGGD..",".D.GGGGGG.D.","...GG..GG..."];
+const GR = { a: makeSprite([...G_TOP,"..GG....GG..","............"]),
+             b: makeSprite([...G_TOP,"....GGGG....","............"]) };
+const GREMLIN_W = 24, GREMLIN_H = 24;
+
+/* ---- Wrench 10x10 ---- */
+const WR_ART = ["..LL......",".L..L.....",".L..L.....","..LLL.....","....LL....",
+                ".....LL...","......LL..",".......LL.","........LM",".........M"];
+const WR = { normal: makeSprite(WR_ART), super: makeSprite(WR_ART, { L:"Y", M:"O" }) };
+const WRENCH_W = 20;
+
+function blit(img, x, y, flip) {
+  const w = img.width * SCALE, h = img.height * SCALE;
+  x = Math.round(x); y = Math.round(y);
+  if (flip) { ctx.save(); ctx.translate(x + w, y); ctx.scale(-1, 1);
+              ctx.drawImage(img, 0, 0, w, h); ctx.restore(); }
+  else ctx.drawImage(img, x, y, w, h);
+}
+function spin(img, cx, cy, ang) {
+  const w = img.width * SCALE, h = img.height * SCALE;
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(ang);
+  ctx.drawImage(img, -w / 2, -h / 2, w, h); ctx.restore();
 }
 
-function loop(){
- if(state=='title'){
-  X.fillStyle='#111';X.fillRect(0,0,800,520);
-  overlay([['FIX-IT FRANKIE',44,'#ff0'],['Monkey Business',22,'#0ff'],
-   ['Monkeys 🐒, Gremlins 👺 & Murphy\'s Law 🌩️ broke everything!',15],
-   ['Grab the parts and bring them to the broken machine before time runs out.',14],
-   ['⏰ +Time  🔨 Hammer  ☕ Speed  💥 Stun All  ❤️ 1-Up',15,'#0f0'],
-   ['PRESS ENTER TO START',22,'#ff0']]);
-  if(K.Enter){K.Enter=0;level=0;lives=3;score=0;loadLevel();state='play'}
- }else if(state=='play'){update();draw()}
- else if(state=='clear'){
-  draw();overlay([['BUSINESS RESTORED!',36,'#0f0'],[THEMES[level%THEMES.length].name+' is open again!',20],
-   ['Score: '+score,20,'#ff0'],['PRESS ENTER FOR NEXT JOB',20,'#0ff']]);
-  if(K.Enter){K.Enter=0;level++;loadLevel();state='play'}
- }else if(state=='over'){
-  draw();overlay([['GAME OVER',44,'#f44'],['"It must be gremlins..."',20],
-   ['Final Score: '+score+'   Level: '+(level+1),20,'#ff0'],['PRESS ENTER TO TRY AGAIN',20,'#0ff']]);
-  if(K.Enter){K.Enter=0;state='title'}
- }
- requestAnimationFrame(loop);
-}
-loop();
- // ===== Mobile / touch support =====
-(function(){
- // Make the page scale properly on phones
- const m=document.createElement('meta');m.name='viewport';
- m.content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no';
- document.head.appendChild(m);
- C.style.maxWidth='100%';C.style.height='auto';C.style.touchAction='none';
- document.body.style.userSelect='none';
- document.body.style.webkitUserSelect='none';
+const Sprites = {
+  frankie(x, y, o) {
+    const t = o.t || 0;
+    if (o.anim === "dead") {
+      spin(FR.jump, x + 12, y + 16, Math.min(Math.PI / 2, t * 0.15));
+      ctx.fillStyle = "#ffd400";
+      for (let i = 0; i < 3; i++) { const a = t * 0.2 + i * 2.1;
+        ctx.fillRect(x + 12 + Math.cos(a) * 14, y - 4 + Math.sin(a) * 5, 3, 3); }
+      return;
+    }
+    if (o.flash && Math.floor(t / 4) % 2) return;
+    let img = FR.stand, bob = 0;
+    if (o.anim === "walk") { img = [FR.walk1, FR.stand, FR.walk2, FR.stand][Math.floor(t / 5) % 4];
+                             bob = Math.floor(t / 5) % 2 ? -1 : 0; }
+    else if (o.anim === "jump") img = FR.jump;
+    else if (o.anim === "climb") img = Math.floor(t / 8) % 2 ? FR.climb1 : FR.climb2;
+    blit(img, x, y + bob, o.facing < 0);
+    if (o.hammer) this.hammer(x, y, o.facing, t);
+  },
+  hammer(x, y, facing, t) {
+    const up = Math.floor(t / 6) % 2;
+    const hx = facing > 0 ? x + 22 : x - 10, hy = up ? y - 8 : y + 12;
+    ctx.fillStyle = "#8b5a2b"; ctx.fillRect(hx + 3, hy + 4, 3, 10);
+    ctx.fillStyle = "#aaa"; ctx.fillRect(hx - 1, hy, 11, 6);
+  },
+  monkey(x, y, throwing, t) {
+    blit(throwing ? MK.throw : MK.idle, x, y + (Math.floor(t / 15) % 2 ? -2 : 0));
+  },
+  gremlin(x, y, facing, t) {
+    blit(Math.floor(t / 6) % 2 ? GR.a : GR.b, x, y + (Math.floor(t / 6) % 2 ? -1 : 0), facing < 0);
+  },
+  wrench(x, y, t, isSuper) {
+    spin(isSuper ? WR.super : WR.normal, x + 10, y + 10, t * 0.3);
+  },
+  part(x, y, kind, t) {           // kind 0-3: gear, bolt, pipe, chip
+    const by = y + Math.sin(t * 0.1 + x) * 2;
+    ctx.save(); ctx.translate(x + 8, by + 8);
+    if (kind === 0) { ctx.rotate(t * 0.05); ctx.fillStyle = "#ccc";
+      for (let i = 0; i < 6; i++) { ctx.rotate(Math.PI / 3); ctx.fillRect(-2, -8, 4, 4); }
+      ctx.beginPath(); ctx.arc(0, 0, 5, 0, 7); ctx.fill();
+      ctx.fillStyle = "#000"; ctx.beginPath(); ctx.arc(0, 0, 2, 0, 7); ctx.fill(); }
+    else if (kind === 1) { ctx.fillStyle = "#ffd400"; ctx.fillRect(-6, -6, 12, 4); ctx.fillRect(-2, -2, 4, 9); }
+    else if (kind === 2) { ctx.fillStyle = "#3a9cff"; ctx.fillRect(-7, -3, 14, 6);
+      ctx.fillStyle = "#1a5c9f"; ctx.fillRect(-8, -4, 3, 8); ctx.fillRect(5, -4, 3, 8); }
+    else { ctx.fillStyle = "#1d6b1d"; ctx.fillRect(-6, -5, 12, 10); ctx.fillStyle = "#ffd400";
+      for (let i = -5; i < 6; i += 3) { ctx.fillRect(i, -7, 1, 2); ctx.fillRect(i, 5, 1, 2); } }
+    ctx.restore();
+    if (Math.floor(t / 10) % 3 === 0) { ctx.fillStyle = "#fff"; ctx.fillRect(x + 13, by, 2, 2); }
+  },
+  powerup(x, y, type, t) {       // clock | hammer | life | coffee | super
+    const by = y + Math.sin(t * 0.15) * 3;
+    ctx.fillStyle = Math.floor(t / 8) % 2 ? "#fff" : "#ffd400";
+    ctx.fillRect(x - 1, by - 1, 18, 18); ctx.fillStyle = "#000"; ctx.fillRect(x, by, 16, 16);
+    ctx.save(); ctx.translate(x + 8, by + 8);
+    if (type === "clock") { ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(0, 0, 6, 0, 7); ctx.fill();
+      ctx.fillStyle = "#000"; ctx.fillRect(-1, -5, 2, 5); ctx.fillRect(0, -1, 4, 2); }
+    else if (type === "hammer") { ctx.fillStyle = "#8b5a2b"; ctx.fillRect(-1, -2, 3, 9);
+      ctx.fillStyle = "#aaa"; ctx.fillRect(-6, -6, 12, 5); }
+    else if (type === "life") { ctx.fillStyle = "#e02020";
+      ctx.fillRect(-6, -4, 5, 5); ctx.fillRect(1, -4, 5, 5); ctx.fillRect(-5, 0, 10, 3); ctx.fillRect(-3, 3, 6, 2); }
+    else if (type === "coffee") { ctx.fillStyle = "#fff"; ctx.fillRect(-5, -3, 9, 9); ctx.fillRect(4, -1, 2, 4);
+      ctx.fillStyle = "#5a2e0a"; ctx.fillRect(-4, -2, 7, 2);
+      ctx.fillStyle = "#aaa"; ctx.fillRect(-3, -7 + (t % 10 > 5 ? 1 : 0), 1, 3); ctx.fillRect(1, -7, 1, 3); }
+    else { spin(WR.super, 0, 0, t * 0.1); }
+    ctx.restore();
+  },
+  lightning(x, warn, t) {
+    if (warn) { ctx.fillStyle = Math.floor(t / 4) % 2 ? "rgba(255,255,0,0.35)" : "rgba(255,255,0,0.1)";
+      ctx.fillRect(x - 10, 0, 20, H); return; }
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(x, 0);
+    for (let yy = 20; yy <= H; yy += 20) ctx.lineTo(x + (Math.random() * 16 - 8), yy);
+    ctx.stroke(); ctx.strokeStyle = "#ffd400"; ctx.lineWidth = 2; ctx.stroke();
+  },
+  girder(x, y, w) {
+    ctx.fillStyle = "#c40000"; ctx.fillRect(x, y, w, 8);
+    ctx.fillStyle = "#ff5050"; ctx.fillRect(x, y, w, 2);
+    ctx.fillStyle = "#600";
+    for (let i = x; i < x + w; i += 12) { ctx.fillRect(i + 2, y + 3, 2, 2); ctx.fillRect(i + 7, y + 3, 2, 2); }
+  },
+  ladder(x, y, h) {
+    ctx.fillStyle = "#00c8ff"; ctx.fillRect(x, y, 2, h); ctx.fillRect(x + 14, y, 2, h);
+    for (let i = y + 4; i < y + h; i += 8) ctx.fillRect(x, i, 16, 2);
+  },
+  machine(x, y, name, fixed, progress, t) {
+    ctx.fillStyle = fixed ? "#2a8c2a" : "#555"; ctx.fillRect(x, y, 48, 40);
+    ctx.fillStyle = "#222"; ctx.fillRect(x + 6, y + 6, 36, 16);
+    ctx.fillStyle = fixed ? (Math.floor(t / 10) % 2 ? "#7fff7f" : "#3ec43e") : "#900";
+    ctx.fillRect(x + 8, y + 8, 32 * (fixed ? 1 : progress), 12);
+    if (!fixed && Math.floor(t / 6) % 2) {  // sparks & smoke while broken
+      ctx.fillStyle = "#ffd400"; ctx.fillRect(x + 40 + Math.random() * 6, y + Math.random() * 10, 2, 2);
+      ctx.fillStyle = "rgba(150,150,150,0.5)";
+      ctx.fillRect(x + 20 + Math.sin(t * 0.1) * 4, y - 8 - (t % 20) / 2, 6, 6);
+    }
+    ctx.fillStyle = "#fff"; ctx.font = "bold 8px Courier New"; ctx.textAlign = "center";
+    ctx.fillText(name, x + 24, y + 34); ctx.textAlign = "left";
+  }
+};
 
- // Tap the game screen = ENTER (start / next level / retry)
- C.addEventListener('pointerdown',e=>{e.preventDefault();K.Enter=1;setTimeout(()=>K.Enter=0,100)});
+/* ---- Particles (sparks, dust, explosions) ---- */
+const Particles = {
+  list: [],
+  burst(x, y, color, n, speed) {
+    for (let i = 0; i < (n || 12); i++) {
+      const a = Math.random() * Math.PI * 2, s = (speed || 2) * (0.5 + Math.random());
+      this.list.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 1,
+        life: 30 + Math.random() * 20, color: color || "#ffd400" });
+    }
+  },
+  dust(x, y) { for (let i = 0; i < 4; i++)
+    this.list.push({ x: x + Math.random() * 20, y, vx: (Math.random() - 0.5), vy: -Math.random(),
+      life: 15, color: "#888" }); },
+  update() { this.list = this.list.filter(p => { p.x += p.vx; p.y += p.vy; p.vy += 0.1; return --p.life > 0; }); },
+  draw() { this.list.forEach(p => { ctx.globalAlpha = Math.min(1, p.life / 20);
+    ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, 2, 2); }); ctx.globalAlpha = 1; }
+};
 
- // Build the on-screen controls
- const pad=document.createElement('div');
- pad.style.cssText='display:flex;justify-content:space-between;width:100%;max-width:800px;padding:10px;box-sizing:border-box;touch-action:none';
- const css='width:64px;height:64px;margin:4px;font-size:28px;border-radius:14px;border:2px solid #666;background:#333;color:#fff;touch-action:none';
- function btn(label,code){
-  const b=document.createElement('button');b.textContent=label;b.style.cssText=css;
-  const on=e=>{e.preventDefault();K[code]=1;b.style.background='#666'};
-  const off=e=>{e.preventDefault();K[code]=0;b.style.background='#333'};
-  b.addEventListener('pointerdown',on);
-  b.addEventListener('pointerup',off);
-  b.addEventListener('pointerleave',off);
-  b.addEventListener('pointercancel',off);
-  b.addEventListener('contextmenu',e=>e.preventDefault());
-  return b;
- }
- const left=document.createElement('div'),right=document.createElement('div');
- left.style.cssText=right.style.cssText='display:flex;align-items:center';
- left.append(btn('◀','ArrowLeft'),btn('▶','ArrowRight'));
- const ud=document.createElement('div');ud.style.cssText='display:flex;flex-direction:column';
- ud.append(btn('▲','ArrowUp'),btn('▼','ArrowDown'));
- const jump=btn('JUMP','Space');jump.style.width='90px';jump.style.fontSize='18px';
- right.append(ud,jump);
- pad.append(left,right);
- document.body.appendChild(pad);
-})();
+/* ---- Floating score pop-ups ---- */
+const Popups = {
+  list: [],
+  add(x, y, text, color) { this.list.push({ x, y, text, color: color || "#fff", life: 45 }); },
+  update() { this.list = this.list.filter(p => { p.y -= 0.6; return --p.life > 0; }); },
+  draw() { ctx.font = "bold 10px Courier New";
+    this.list.forEach(p => { ctx.globalAlpha = Math.min(1, p.life / 15);
+      ctx.fillStyle = "#000"; ctx.fillText(p.text, p.x + 1, p.y + 1);
+      ctx.fillStyle = p.color; ctx.fillText(p.text, p.x, p.y); }); ctx.globalAlpha = 1; }
+};
+/* ===== END OF PART 2 — paste Part 3 directly below this line ===== */
 
-</script></body></html>
