@@ -8,6 +8,8 @@ p{margin:6px}
 <canvas id="c" width="800" height="520"></canvas>
 <p>← → move · ↑ ↓ climb ladders · SPACE jump · Stomp enemies · Bring pieces ⚙ to the broken machine!</p>
 <script>
+ window.onerror=(m,s,l)=>{alert('Error on line '+l+': '+m)};
+
 const C=document.getElementById('c'),X=C.getContext('2d');
 const K={};onkeydown=e=>{K[e.code]=1;if(['Space','ArrowUp','ArrowDown'].includes(e.code))e.preventDefault()};onkeyup=e=>K[e.code]=0;
 
