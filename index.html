@@ -408,4 +408,695 @@ const Popups = {
       ctx.fillStyle = p.color; ctx.fillText(p.text, p.x, p.y); }); ctx.globalAlpha = 1; }
 };
 /* ===== END OF PART 2 — paste Part 3 directly below this line ===== */
+/* ===== PART 3: SOUND EFFECTS + MUSIC (Web Audio, no files) ===== */
+const Sound = {
+  ac: null, master: null, muted: false, musicOn: false, musicTimer: null, step: 0,
+
+  /* Must be called from a tap/keypress (mobile browsers require this) */
+  unlock() {
+    try {
+      if (!this.ac) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        this.ac = new AC();
+        this.master = this.ac.createGain();
+        this.master.gain.value = 0.35;
+        this.master.connect(this.ac.destination);
+      }
+      if (this.ac.state === "suspended") this.ac.resume();
+      // iOS: play a silent blip to fully unlock
+      const b = this.ac.createBuffer(1, 1, 22050), s = this.ac.createBufferSource();
+      s.buffer = b; s.connect(this.master); s.start(0);
+    } catch (e) { /* audio unavailable - game still works */ }
+  },
+
+  toggleMute() {
+    this.muted = !this.muted;
+    if (this.master) this.master.gain.value = this.muted ? 0 : 0.35;
+    return this.muted;
+  },
+
+  /* Core beep: freq start->end, duration, waveform, volume */
+  tone(f1, f2, dur, type, vol, delay) {
+    if (!this.ac || this.muted) return;
+    const t = this.ac.currentTime + (delay || 0);
+    const o = this.ac.createOscillator(), g = this.ac.createGain();
+    o.type = type || "square";
+    o.frequency.setValueAtTime(f1, t);
+    if (f2 && f2 !== f1) o.frequency.exponentialRampToValueAtTime(Math.max(20, f2), t + dur);
+    g.gain.setValueAtTime(vol || 0.3, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(this.master);
+    o.start(t); o.stop(t + dur + 0.02);
+  },
+
+  /* White-noise burst (explosions, thunder, hits) */
+  noise(dur, vol, delay, lowpass) {
+    if (!this.ac || this.muted) return;
+    const t = this.ac.currentTime + (delay || 0);
+    const len = Math.floor(this.ac.sampleRate * dur);
+    const buf = this.ac.createBuffer(1, len, this.ac.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const src = this.ac.createBufferSource(), g = this.ac.createGain();
+    src.buffer = buf;
+    g.gain.setValueAtTime(vol || 0.3, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    if (lowpass) {
+      const f = this.ac.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = lowpass;
+      src.connect(f); f.connect(g);
+    } else src.connect(g);
+    g.connect(this.master); src.start(t);
+  },
+
+  /* Play a list of notes: [[freq, duration], ...] */
+  seq(notes, type, vol) {
+    let d = 0;
+    notes.forEach(([f, len]) => { if (f) this.tone(f, f, len * 0.95, type, vol, d); d += len; });
+  },
+
+  /* ---- Game sound effects ---- */
+  jump()      { this.tone(220, 660, 0.15, "square", 0.2); },
+  land()      { this.noise(0.05, 0.1, 0, 800); },
+  walk()      { this.tone(110, 90, 0.03, "triangle", 0.12); },
+  climb()     { this.tone(330 + Math.random() * 40, 300, 0.04, "triangle", 0.12); },
+  collect()   { this.tone(880, 880, 0.06, "square", 0.2); this.tone(1320, 1320, 0.1, "square", 0.2, 0.06); },
+  deliver()   { this.seq([[523, .07], [659, .07], [784, .07], [1047, .15]], "square", 0.2); },
+  powerup()   { for (let i = 0; i < 6; i++) this.tone(400 + i * 120, 500 + i * 120, 0.06, "square", 0.18, i * 0.05); },
+  extraLife() { this.seq([[659, .1], [784, .1], [1319, .1], [1047, .1], [1175, .1], [1568, .25]], "square", 0.2); },
+  coffee()    { this.tone(300, 1200, 0.3, "sawtooth", 0.15); },
+  clock()     { this.seq([[1568, .05], [0, .05], [1568, .05], [0, .05], [2093, .15]], "square", 0.15); },
+  hammerHit() { this.noise(0.12, 0.35, 0, 2000); this.tone(150, 60, 0.15, "square", 0.3); },
+  smash()     { this.noise(0.25, 0.4, 0, 3000); this.seq([[784, .05], [988, .05], [1319, .12]], "square", 0.15); },
+  throwWrench(){ this.tone(600, 200, 0.18, "sawtooth", 0.12); },
+  monkeyTaunt(){ this.seq([[700, .06], [900, .06], [700, .06], [900, .08]], "square", 0.12); },
+  gremlin()   { this.tone(1200, 400, 0.2, "sawtooth", 0.12); this.tone(400, 1100, 0.15, "sawtooth", 0.1, 0.15); },
+  warn()      { this.tone(1000, 1000, 0.08, "square", 0.12); },
+  thunder()   { this.noise(0.08, 0.5, 0, 6000); this.noise(0.9, 0.45, 0.05, 400); },
+  hurt()      { this.tone(400, 100, 0.3, "sawtooth", 0.3); this.noise(0.15, 0.3, 0, 1500); },
+  tick()      { this.tone(1800, 1800, 0.03, "square", 0.1); },
+  machineFixed() {
+    this.noise(0.2, 0.2, 0, 1200);
+    this.seq([[523, .1], [523, .1], [784, .1], [1047, .3]], "square", 0.22);
+    this.seq([[262, .1], [262, .1], [392, .1], [523, .3]], "triangle", 0.25);
+  },
+
+  die() {
+    this.stopMusic();
+    const n = [988, 932, 880, 831, 784, 740, 698, 659];
+    n.forEach((f, i) => this.tone(f, f * 0.94, 0.12, "square", 0.25, i * 0.12));
+    this.noise(0.3, 0.3, 1.0, 800);
+  },
+  levelClear() {
+    this.stopMusic();
+    this.seq([[523, .12], [659, .12], [784, .12], [1047, .12], [784, .12], [1047, .4]], "square", 0.22);
+    this.seq([[262, .24], [330, .24], [392, .24], [523, .4]], "triangle", 0.28);
+  },
+  gameOver() {
+    this.stopMusic();
+    this.seq([[392, .3], [0, .1], [370, .3], [0, .1], [349, .3], [0, .1], [330, .8]], "triangle", 0.3);
+  },
+  start() {
+    this.seq([[392, .1], [523, .1], [659, .1], [784, .2], [659, .1], [784, .4]], "square", 0.22);
+  },
+
+  /* ---- Looping background tune (arcade-style bass + melody) ---- */
+  MELODY: [659, 0, 784, 659, 523, 0, 587, 659, 784, 0, 880, 784, 659, 0, 523, 0,
+           587, 0, 659, 587, 494, 0, 523, 587, 659, 0, 587, 523, 494, 0, 392, 0],
+  BASS:   [131, 131, 196, 196, 131, 131, 196, 196, 175, 175, 262, 262, 175, 175, 262, 262,
+           147, 147, 220, 220, 147, 147, 220, 220, 196, 196, 247, 247, 196, 196, 294, 294],
+
+  startMusic(fast) {
+    this.stopMusic();
+    if (!this.ac) return;
+    this.musicOn = true; this.step = 0;
+    const beat = fast ? 0.11 : 0.15;  // speeds up when time is low
+    this.musicTimer = setInterval(() => {
+      if (!this.musicOn || this.muted) return;
+      const i = this.step % this.MELODY.length;
+      const m = this.MELODY[i], b = this.BASS[i];
+      if (m) this.tone(m, m, beat * 0.8, "square", 0.07);
+      if (b) this.tone(b, b, beat * 0.9, "triangle", 0.14);
+      if (i % 4 === 0) this.noise(0.03, 0.05, 0, 5000); // hi-hat
+      this.step++;
+    }, beat * 1000);
+  },
+  stopMusic() {
+    this.musicOn = false;
+    if (this.musicTimer) { clearInterval(this.musicTimer); this.musicTimer = null; }
+  }
+};
+
+/* Unlock audio on the first tap, click or key press */
+["touchstart", "touchend", "mousedown", "keydown"].forEach(ev =>
+  window.addEventListener(ev, () => Sound.unlock(), { passive: true }));
+
+/* Press M to mute or unmute */
+window.addEventListener("keydown", e => { if (e.key === "m" || e.key === "M") Sound.toggleMute(); });
+/* ===== END OF PART 3 — paste Part 4 directly below this line ===== */
+/* ===== PART 4A: LEVEL LAYOUT + HELPERS ===== */
+function unlockAudio() { Sound.unlock(); }
+
+const GRAV = 0.35, MAX_FALL = 7, HUD_H = 24;
+const MACHINE_NAMES = ["GENERATOR", "PUMP", "ROBOT", "ROCKET", "REACTOR"];
+let girders = [], ladders = [], machine = null;
+
+/* Seeded random so each level's layout is always the same */
+let seed = 1;
+function rnd() { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }
+
+function buildLevel(n) {
+  seed = n * 7919 + 13;
+  girders = []; ladders = [];
+  const ROWS = 5, GAP = 62, BASE = H - 12;
+
+  /* Floor is full width; upper rows leave a 40px gap on alternating sides */
+  for (let r = 0; r < ROWS; r++) {
+    const y = BASE - r * GAP;
+    if (r === 0)      girders.push({ x: 0,  y, w: W,      row: 0 });
+    else if (r % 2)   girders.push({ x: 0,  y, w: W - 40, row: r });
+    else              girders.push({ x: 40, y, w: W - 40, row: r });
+  }
+
+  /* Ladders between each pair of rows (fewer on later levels) */
+  for (let r = 0; r < ROWS - 1; r++) {
+    const top = girders[r + 1].y, h = girders[r].y - top;
+    const count = n >= 4 ? 1 + (r % 2) : 2;
+    const used = [];
+    for (let i = 0; i < count; i++) {
+      let x, tries = 0;
+      do { x = 60 + Math.floor(rnd() * (W - 140) / 8) * 8; tries++; }
+      while (tries < 20 && used.some(u => Math.abs(u - x) < 90));
+      used.push(x);
+      ladders.push({ x, y: top, h });
+    }
+  }
+
+  /* Broken machine sits on the top girder */
+  const topG = girders[ROWS - 1];
+  machine = { x: 52, y: topG.y - 40, w: 48, h: 40,
+              name: MACHINE_NAMES[(n - 1) % MACHINE_NAMES.length],
+              need: Math.min(3 + n, 8), have: 0, fixed: false };
+}
+
+/* ---- Collision helpers ---- */
+function overlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+/* Returns the girder an object lands on while falling, or null */
+function girderUnder(x, w, footPrev, foot) {
+  for (const g of girders)
+    if (x + w > g.x && x < g.x + g.w && footPrev <= g.y + 0.5 && foot >= g.y) return g;
+  return null;
+}
+/* Random standing spot on a girder (rows 0..maxRow) */
+function randomSpotOnGirder(maxRow) {
+  const g = girders[Math.floor(Math.random() * (maxRow + 1))];
+  return { x: g.x + 20 + Math.random() * (g.w - 56), y: g.y };
+}
+
+function drawLevel() {
+  ladders.forEach(l =>
+  Sprites.ladder(l.x, l.y, l.h));
+  girders.forEach(g => Sprites.girder(g.x, g.y, g.w));
+  Sprites.machine(machine.x, machine.y, machine.name, machine.fixed,
+                  machine.have / machine.need, Game.frame);
+}
+/* ===== END OF PART 4A — paste Part 4B directly below this line ===== */
+/* ===== PART 4B: FRANKIE (PLAYER) MOVEMENT ===== */
+
+/* ---- Keyboard input (arrows / WASD, Space or Z to jump) ---- */
+const Input = { left: false, right: false, up: false, down: false, jump: false, jumpPressed: false };
+const KEYMAP = {
+  ArrowLeft: "left",  KeyA: "left",
+  ArrowRight: "right", KeyD: "right",
+  ArrowUp: "up",      KeyW: "up",
+  ArrowDown: "down",  KeyS: "down",
+  Space: "jump",      KeyZ: "jump"
+};
+window.addEventListener("keydown", e => {
+  unlockAudio();
+  const k = KEYMAP[e.code];
+  if (!k) return;
+  e.preventDefault();
+  if (k === "jump" && !Input.jump) Input.jumpPressed = true;
+  Input[k] = true;
+});
+window.addEventListener("keyup", e => {
+  const k = KEYMAP[e.code];
+  if (k) { e.preventDefault(); Input[k] = false; }
+});
+
+/* ---- Player state ---- */
+const WALK_SPEED = 1.6, CLIMB_SPEED = 1.3, JUMP_V = -5.2;
+const frankie = {
+  x: 0, y: 0, w: 14, h: 20, vx: 0, vy: 0,
+  facing: 1, onGround: false, climbing: false, ladder: null,
+  carrying: 0, invuln: 0, dead: false, deadTimer: 0, animT: 0
+};
+
+function resetFrankie() {
+  const floor = girders[0];
+  Object.assign(frankie, {
+    x: W - 40, y: floor.y - frankie.h, vx: 0, vy: 0,
+    facing: -1, onGround: true, climbing: false, ladder: null,
+    carrying: 0, invuln: 90, dead: false, deadTimer: 0, animT: 0
+  });
+}
+
+/* Ladder Frankie's centre is over (with a little tolerance) */
+function ladderAt(cx, footY) {
+  for (const l of ladders)
+    if (Math.abs(cx - (l.x + 8)) < 7 && footY >= l.y - 2 && footY <= l.y + l.h + 2) return l;
+  return null;
+}
+
+function updateFrankie() {
+  const f = frankie;
+  if (f.dead) { f.deadTimer++; return; }
+  if (f.invuln > 0) f.invuln--;
+
+  const cx = f.x + f.w / 2;
+  const foot = f.y + f.h;
+
+  /* ---- Start climbing ---- */
+  if (!f.climbing && (Input.up || Input.down) && f.onGround) {
+    const l = ladderAt(cx, foot);
+    /* Up: ladder must rise above us. Down: we must be standing on its top */
+    if (l && ((Input.up && foot > l.y + 2) || (Input.down && Math.abs(foot - l.y) < 3))) {
+      f.climbing = true; f.ladder = l; f.vx = 0; f.vy = 0;
+      f.x = l.x + 8 - f.w / 2;
+    }
+  }
+
+  /* ---- On a ladder ---- */
+  if (f.climbing) {
+    const l = f.ladder;
+    let dy = 0;
+    if (Input.up) dy = -CLIMB_SPEED;
+    else if (Input.down) dy = CLIMB_SPEED;
+    f.y += dy;
+    if (dy) f.animT++;
+
+    /* Reached the top or bottom: step off */
+    if (f.y + f.h <= l.y) { f.y = l.y - f.h; f.climbing = false; f.onGround = true; }
+    else if (f.y + f.h >= l.y + l.h) { f.y = l.y + l.h - f.h; f.climbing = false; f.onGround = true; }
+    Input.jumpPressed = false;
+    return;
+  }
+
+  /* ---- Walking ---- */
+  f.vx = 0;
+  if (Input.left)  { f.vx = -WALK_SPEED; f.facing = -1; }
+  if (Input.right) { f.vx =  WALK_SPEED; f.facing =  1; }
+  if (f.vx && f.onGround) f.animT++;
+
+  /* ---- Jumping ---- */
+  if (Input.jumpPressed && f.onGround) {
+    f.vy = JUMP_V; f.onGround = false;
+    Sound.jump && Sound.jump();
+  }
+  Input.jumpPressed = false;
+
+  /* ---- Horizontal move + screen edges ---- */
+  f.x = Math.max(0, Math.min(W - f.w, f.x + f.vx));
+
+  /* ---- Gravity + landing ---- */
+  const prevFoot = f.y + f.h;
+  f.vy = Math.min(f.vy + GRAV, MAX_FALL);
+  f.y += f.vy;
+  const g = f.vy >= 0 ? girderUnder(f.x, f.w, prevFoot, f.y + f.h) : null;
+  if (g) { f.y = g.y - f.h; f.vy = 0; f.onGround = true; }
+  else f.onGround = false;
+
+  /* Don't jump through the HUD */
+  if (f.y < HUD_H) { f.y = HUD_H; f.vy = Math.max(f.vy, 0); }
+
+  /* Fell off the bottom of the screen */
+  if (f.y > H) killFrankie();
+}
+
+function killFrankie() {
+  const f = frankie;
+  if (f.dead || f.invuln > 0) return;
+  f.dead = true; f.deadTimer = 0; f.carrying = 0;
+  Sound.die && Sound.die();
+}
+
+function drawFrankie() {
+  const f = frankie;
+  /* Flicker while invulnerable */
+  if (f.invuln > 0 && Math.floor(f.invuln / 4) % 2) return;
+  Sprites.frankie(f.x, f.y, f.facing, Math.floor(f.animT / 6) % 2,
+                  f.climbing, f.dead, f.carrying);
+}
+/* ===== END OF PART 4B — paste Part 4C directly below this line ===== */
+/* ===== PART 4C: SPARE PARTS, ENEMIES, HAZARDS + POWER-UPS ===== */
+let parts = [], gremlins = [], bolts = [], powerups = [], popups = [];
+let powerTimer = 0, freezeTimer = 0, boltTimer = 0, powerupTimer = 0;
+const MAX_CARRY = 3;
+
+/* Fallback drawing so a missing sprite never crashes the game */
+function drawBox(x, y, w, h, color) { ctx.fillStyle = color; ctx.fillRect(x, y, w, h); }
+function spr(name, fallback, ...args) {
+  if (Sprites[name]) Sprites[name](...args); else fallback();
+}
+
+/* ---- Set up everything for a new level ---- */
+function spawnLevelObjects(n) {
+  parts = []; gremlins = []; bolts = []; powerups = []; popups = [];
+  powerTimer = 0; freezeTimer = 0;
+  boltTimer = 180; powerupTimer = 600;
+
+  /* One extra spare part beyond what the machine needs */
+  for (let i = 0; i < machine.need + 1; i++) spawnPart();
+
+  /* Gremlins: more and faster each level, never on the floor at the start */
+  const count = Math.min(1 + n, 6);
+  for (let i = 0; i < count; i++) {
+    const g = girders[1 + (i % (girders.length - 1))];
+    gremlins.push({
+      x: g.x + 30 + Math.random() * (g.w - 80), y: g.y - 14, w: 14, h: 14,
+      dir: Math.random() < 0.5 ? -1 : 1,
+      speed: 0.6 + n * 0.12 + Math.random() * 0.3,
+      girder: g, stunned: 0, animT: 0
+    });
+  }
+}
+
+function spawnPart() {
+  const s = randomSpotOnGirder(girders.length - 2);
+  parts.push({ x: s.x, y: s.y - 10, w: 10, h: 10, kind: Math.floor(Math.random() * 3), bob: Math.random() * 6 });
+}
+
+function addPopup(x, y, text) { popups.push({ x, y, text, t: 40 }); }
+function addPoints(n, x, y) { Game.score += n; if (x !== undefined) addPopup(x, y, "+" + n); }
+
+/* ---- Main update for all objects ---- */
+function updateObjects() {
+  const f = frankie;
+  if (powerTimer > 0) powerTimer--;
+  if (freezeTimer > 0) freezeTimer--;
+
+  /* --- Spare parts: pick up --- */
+  if (!f.dead) {
+    for (let i = parts.length - 1; i >= 0; i--) {
+      if (f.carrying < MAX_CARRY && overlap(f, parts[i])) {
+        f.carrying++;
+        addPoints(50, parts[i].x, parts[i].y);
+        parts.splice(i, 1);
+        Sound.pickup && Sound.pickup();
+      }
+    }
+  }
+
+  /* --- Deliver parts to the machine --- */
+  if (!f.dead && f.carrying > 0 && !machine.fixed && overlap(f, machine)) {
+    const give = Math.min(f.carrying, machine.need - machine.have);
+    machine.have += give; f.carrying -= give;
+    addPoints(200 * give, machine.x + 10, machine.y);
+    Sound.deliver && Sound.deliver();
+    if (machine.have >= machine.need) {
+      machine.fixed = true;
+      Sound.fixed && Sound.fixed();
+    }
+  }
+
+  /* --- Gremlins --- */
+  for (const g of gremlins) {
+    if (g.stunned > 0) { g.stunned--; continue; }
+    if (freezeTimer > 0) continue;
+    g.x += g.dir * g.speed; g.animT++;
+    const gr = g.girder;
+    if (g.x <= gr.x) { g.x = gr.x; g.dir = 1; }
+    if (g.x + g.w >= gr.x + gr.w) { g.x = gr.x + gr.w - g.w; g.dir = -1; }
+    /* Turn around at random sometimes so they're less predictable */
+    if (Math.random() < 0.004) g.dir *= -1;
+
+    if (!f.dead && overlap(f, g)) {
+      if (powerTimer > 0) {
+        g.stunned = 240;
+        addPoints(300, g.x, g.y);
+        Sound.bonk && Sound.bonk();
+      } else killFrankie();
+    }
+  }
+
+  /* --- Falling bolts (hazard), more often on later levels --- */
+  if (--boltTimer <= 0) {
+    boltTimer = Math.max(50, 200 - Game.level * 20) + Math.random() * 60;
+    bolts.push({ x: 20 + Math.random() * (W - 40), y: HUD_H, w: 6, h: 8, vy: 0.5 });
+  }
+  for (let i = bolts.length - 1; i >= 0; i--) {
+    const b = bolts[i];
+    if (freezeTimer <= 0) { b.vy = Math.min(b.vy + 0.08, 4); b.y += b.vy; }
+    if (!f.dead && overlap(f, b)) {
+      if (powerTimer > 0) { addPoints(100, b.x, b.y); bolts.splice(i, 1); continue; }
+      killFrankie();
+    }
+    if (b.y > H) bolts.splice(i, 1);
+  }
+
+  /* --- Power-ups: wrench (smash enemies), clock (freeze), heart (extra life) --- */
+  if (--powerupTimer <= 0) {
+    powerupTimer = 700 + Math.random() * 500;
+    if (powerups.length < 2) {
+      const s = randomSpotOnGirder(girders.length - 2);
+      const r = Math.random();
+      const type = r < 0.45 ? "wrench" : r < 0.85 ? "clock" : "heart";
+      powerups.push({ x: s.x, y: s.y - 12, w: 12, h: 12, type, life: 600 });
+    }
+  }
+  for (let i = powerups.length - 1; i >= 0; i--) {
+    const p = powerups[i];
+    if (--p.life <= 0) { powerups.splice(i, 1); continue; }
+    if (!f.dead && overlap(f, p)) {
+      if (p.type === "wrench") powerTimer = 360;
+      if (p.type === "clock")  freezeTimer = 240;
+      if (p.type === "heart")  Game.lives = Math.min(Game.lives + 1, 9);
+      addPoints(150, p.x, p.y);
+      Sound.powerup && Sound.powerup();
+      powerups.splice(i, 1);
+    }
+  }
+
+  /* --- Score popups --- */
+  for (let i = popups.length - 1; i >= 0; i--) {
+    popups[i].y -= 0.5;
+    if (--popups[i].t <= 0) popups.splice(i, 1);
+  }
+}
+
+/* ---- Drawing ---- */
+function drawObjects() {
+  const fr = Game.frame;
+
+  parts.forEach(p => {
+    const by = p.y + Math.sin((fr + p.bob * 10) / 10) * 1.5;
+    spr("part", () => drawBox(p.x, by, p.w, p.h, "#c0c0c0"), p.x, by, p.kind);
+  });
+
+  powerups.forEach(p => {
+    if (p.life < 120 && Math.floor(p.life / 6) % 2) return; /* blink before vanishing */
+    const colors = { wrench: "#ffd700", clock: "#4fc3f7", heart: "#ff4d6d" };
+    spr("powerup", () => drawBox(p.x, p.y, p.w, p.h, colors[p.type]), p.x, p.y, p.type, fr);
+  });
+
+  gremlins.forEach(g => {
+    spr("gremlin", () => drawBox(g.x, g.y, g.w, g.h, g.stunned ? "#777" : "#5cd65c"),
+        g.x, g.y, g.dir, Math.floor(g.animT / 8) % 2, g.stunned > 0, freezeTimer > 0);
+  });
+
+  bolts.forEach(b => spr("bolt", () => drawBox(b.x, b.y, b.w, b.h, "#999"), b.x, b.y));
+
+  ctx.font = "8px monospace"; ctx.textAlign = "center";
+  popups.forEach(p => {
+    ctx.fillStyle = `rgba(255,255,255,${p.t / 40})`;
+    ctx.fillText(p.text, p.x + 5, p.y);
+  });
+}
+/* ===== END OF PART 4C — paste Part 4D directly below this line ===== */
+/* ===== PART 4D: GAME LOOP, SCORING + SCREENS ===== */
+
+/* ---- Game state (keeps any values already set in Parts 1–3) ---- */
+if (typeof Game === "undefined") window.Game = {};
+Game.state    = Game.state    || "title";   /* title | playing | levelclear | gameover */
+Game.score    = Game.score    || 0;
+Game.lives    = Game.lives    || 3;
+Game.level    = Game.level    || 1;
+Game.frame    = Game.frame    || 0;
+Game.timer    = 0;                          /* bonus countdown, in frames */
+Game.stateT   = 0;                          /* frames spent in the current state */
+Game.paused   = false;
+Game.hiScore  = +(localStorage.getItem("monkeyWrenchHi") || 0);
+
+const LEVEL_TIME = 60 * 90;                 /* 90 seconds at 60 fps */
+
+function setState(s) { Game.state = s; Game.stateT = 0; }
+
+function startGame() {
+  Game.score = 0; Game.lives = 3; Game.level = 1;
+  startLevel(1);
+}
+
+function startLevel(n) {
+  Game.level = n;
+  buildLevel(n);
+  spawnLevelObjects(n);
+  resetFrankie();
+  Game.timer = LEVEL_TIME;
+  setState("playing");
+}
+
+function saveHiScore() {
+  if (Game.score > Game.hiScore) {
+    Game.hiScore = Game.score;
+    try { localStorage.setItem("monkeyWrenchHi", Game.hiScore); } catch (e) {}
+  }
+}
+
+/* ---- Start / pause controls (Enter, P, click or tap) ---- */
+function pressStart() {
+  unlockAudio();
+  if (Game.state === "title") startGame();
+  else if (Game.state === "gameover" && Game.stateT > 60) setState("title");
+}
+window.addEventListener("keydown", e => {
+  if (e.code === "Enter") pressStart();
+  if (e.code === "KeyP" && Game.state === "playing") Game.paused = !Game.paused;
+});
+canvas.addEventListener("pointerdown", pressStart);
+
+/* ---- Update ---- */
+function update() {
+  Game.frame++;
+  Game.stateT++;
+
+  if (Game.state !== "playing" || Game.paused) {
+    /* Level-clear screen moves on by itself after about 3 seconds */
+    if (Game.state === "levelclear" && Game.stateT > 180) startLevel(Game.level + 1);
+    return;
+  }
+
+  updateFrankie();
+  updateObjects();
+
+  /* Bonus timer: running out costs a life */
+  if (!frankie.dead && --Game.timer <= 0) { frankie.invuln = 0; killFrankie(); }
+
+  /* Death → lose a life after a short pause */
+  if (frankie.dead && frankie.deadTimer > 90) {
+    Game.lives--;
+    if (Game.lives <= 0) {
+      saveHiScore();
+      Sound.gameover && Sound.gameover();
+      setState("gameover");
+    } else {
+      /* Carried parts are lost, so put them back in the level */
+      while (parts.length < machine.need - machine.have + 1) spawnPart();
+      bolts = [];
+      resetFrankie();
+      Game.timer = Math.max(Game.timer, 60 * 30);
+    }
+  }
+
+  /* Machine fixed → level complete with a time bonus */
+  if (machine.fixed && Game.state === "playing") {
+    const bonus = Math.floor(Game.timer / 60) * 10 + 1000;
+    addPoints(bonus);
+    Game.lastBonus = bonus;
+    saveHiScore();
+    Sound.levelclear && Sound.levelclear();
+    setState("levelclear");
+  }
+}
+
+/* ---- Drawing helpers ---- */
+function text(str, x, y, size, color, align) {
+  ctx.font = `${size}px monospace`;
+  ctx.textAlign = align || "center";
+  ctx.fillStyle = color || "#fff";
+  ctx.fillText(str, x, y);
+}
+
+function drawHUD() {
+  ctx.fillStyle = "#111"; ctx.fillRect(0, 0, W, HUD_H);
+  text("SCORE " + Game.score, 6, 16, 10, "#fff", "left");
+  text("HI " + Game.hiScore, W / 2, 16, 10, "#ffd700");
+  text("LV " + Game.level + "  ♥" + Game.lives, W - 6, 16, 10, "#ff4d6d", "right");
+
+  /* Time bar, which turns red when time is low */
+  const t = Math.max(0, Game.timer / LEVEL_TIME);
+  ctx.fillStyle = t < 0.25 ? "#ff4d4d" : "#4caf50";
+  ctx.fillRect(0, HUD_H - 3, W * t, 3);
+
+  /* Active power-up indicators */
+  if (powerTimer > 0)  text("WRENCH " + Math.ceil(powerTimer / 60),  W - 6, HUD_H + 12, 8, "#ffd700", "right");
+  if (freezeTimer > 0) text("FREEZE " + Math.ceil(freezeTimer / 60), W - 6, HUD_H + 22, 8, "#4fc3f7", "right");
+  if (frankie.carrying) text("PARTS " + frankie.carrying + "/" + MAX_CARRY, 6, HUD_H + 12, 8, "#c0c0c0", "left");
+}
+
+function dim(alpha) { ctx.fillStyle = `rgba(0,0,0,${alpha})`; ctx.fillRect(0, 0, W, H); }
+function blink() { return Math.floor(Game.frame / 30) % 2 === 0; }
+
+function drawTitle() {
+  ctx.fillStyle = "#0b0b1a"; ctx.fillRect(0, 0, W, H);
+  text("MONKEY WRENCH", W / 2, H * 0.3, 24, "#ffd700");
+  text("Help Frankie fix the broken machines!", W / 2, H * 0.3 + 26, 9, "#ccc");
+  text("ARROWS / WASD  move + climb", W / 2, H * 0.55, 9, "#aaa");
+  text("SPACE / Z  jump     P  pause", W / 2, H * 0.55 + 14, 9, "#aaa");
+  text("HI SCORE " + Game.hiScore, W / 2, H * 0.75, 10, "#fff");
+  if (blink()) text("PRESS ENTER OR TAP TO START", W / 2, H * 0.85, 10, "#fff");
+}
+
+function drawLevelClear() {
+  dim(0.6);
+  text(machine.name + " FIXED!", W / 2, H * 0.4, 18, "#4caf50");
+  text("BONUS +" + (Game.lastBonus || 0), W / 2, H * 0.4 + 26, 11, "#ffd700");
+  text("GET READY FOR LEVEL " + (Game.level + 1), W / 2, H * 0.4 + 48, 10, "#fff");
+}
+
+function drawGameOver() {
+  dim(0.7);
+  text("GAME OVER", W / 2, H * 0.4, 24, "#ff4d4d");
+  text("SCORE " + Game.score, W / 2, H * 0.4 + 28, 11, "#fff");
+  if (Game.score >= Game.hiScore && Game.score > 0)
+    text("NEW HIGH SCORE!", W / 2, H * 0.4 + 46, 10, "#ffd700");
+  if (Game.stateT > 60 && blink()) text("PRESS ENTER OR TAP", W / 2, H * 0.4 + 70, 10, "#fff");
+}
+
+/* ---- Render ---- */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+  if (Game.state === "title") { drawTitle(); return; }
+
+  if (Sprites.background) Sprites.background(Game.frame);
+  else { ctx.fillStyle = "#0b0b1a"; ctx.fillRect(0, 0, W, H); }
+
+  drawLevel();
+  drawObjects();
+  drawFrankie();
+  drawHUD();
+
+  if (Game.paused) { dim(0.5); text("PAUSED", W / 2, H / 2, 18, "#fff"); }
+  if (Game.state === "levelclear") drawLevelClear();
+  if (Game.state === "gameover") drawGameOver();
+}
+
+/* ---- Fixed-step loop (same speed on 60 Hz and 120/144 Hz screens) ---- */
+let lastTime = 0, acc = 0;
+const STEP = 1000 / 60;
+function loop(now) {
+  acc += Math.min(now - (lastTime || now), 250);
+  lastTime = now;
+  while (acc >= STEP) { update(); acc -= STEP; }
+  render();
+  requestAnimationFrame(loop);
+}
+
+/* Build a level so the title screen has something ready, then start */
+buildLevel(1);
+spawnLevelObjects(1);
+resetFrankie();
+requestAnimationFrame(loop);
+/* ===== END OF PART 4D — GAME COMPLETE ===== */
 
