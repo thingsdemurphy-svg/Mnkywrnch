@@ -555,6 +555,12 @@ window.addEventListener("keydown", e => { if (e.key === "m" || e.key === "M") So
 /* ===== END OF PART 3 — paste Part 4 directly below this line ===== */
 /* ===== PART 4A: LEVEL LAYOUT + HELPERS ===== */
 function unlockAudio() { Sound.unlock(); }
+/* Part 4 uses different sound names than Part 3 — link them */
+Sound.pickup     = Sound.collect;
+Sound.fixed      = Sound.machineFixed;
+Sound.bonk       = Sound.hammerHit;
+Sound.gameover   = Sound.gameOver;
+Sound.levelclear = Sound.levelClear;
 
 const GRAV = 0.35, MAX_FALL = 7, HUD_H = 24;
 const MACHINE_NAMES = ["GENERATOR", "PUMP", "ROBOT", "ROCKET", "REACTOR"];
@@ -624,27 +630,6 @@ function drawLevel() {
 /* ===== END OF PART 4A — paste Part 4B directly below this line ===== */
 /* ===== PART 4B: FRANKIE (PLAYER) MOVEMENT ===== */
 
-/* ---- Keyboard input (arrows / WASD, Space or Z to jump) ---- */
-const Input = { left: false, right: false, up: false, down: false, jump: false, jumpPressed: false };
-const KEYMAP = {
-  ArrowLeft: "left",  KeyA: "left",
-  ArrowRight: "right", KeyD: "right",
-  ArrowUp: "up",      KeyW: "up",
-  ArrowDown: "down",  KeyS: "down",
-  Space: "jump",      KeyZ: "jump"
-};
-window.addEventListener("keydown", e => {
-  unlockAudio();
-  const k = KEYMAP[e.code];
-  if (!k) return;
-  e.preventDefault();
-  if (k === "jump" && !Input.jump) Input.jumpPressed = true;
-  Input[k] = true;
-});
-window.addEventListener("keyup", e => {
-  const k = KEYMAP[e.code];
-  if (k) { e.preventDefault(); Input[k] = false; }
-});
 
 /* ---- Player state ---- */
 const WALK_SPEED = 1.6, CLIMB_SPEED = 1.3, JUMP_V = -5.2;
@@ -744,11 +729,20 @@ function killFrankie() {
 
 function drawFrankie() {
   const f = frankie;
-  /* Flicker while invulnerable */
-  if (f.invuln > 0 && Math.floor(f.invuln / 4) % 2) return;
-  Sprites.frankie(f.x, f.y, f.facing, Math.floor(f.animT / 6) % 2,
-                  f.climbing, f.dead, f.carrying);
+  if (!f.dead && f.invuln > 0 && Math.floor(f.invuln / 4) % 2) return;
+  let anim = "stand";
+  if (f.dead) anim = "dead";
+  else if (f.climbing) anim = "climb";
+  else if (!f.onGround) anim = "jump";
+  else if (f.vx) anim = "walk";
+  /* Sprite is 24x32 while the hitbox is 14x20: centre it and line up the feet */
+  Sprites.frankie(f.x - (FRANKIE_W - f.w) / 2, f.y - (FRANKIE_H - f.h), {
+    anim, facing: f.facing,
+    t: f.dead ? f.deadTimer : f.animT,
+    hammer: powerTimer > 0 && !f.dead
+  });
 }
+
 /* ===== END OF PART 4B — paste Part 4C directly below this line ===== */
 /* ===== PART 4C: SPARE PARTS, ENEMIES, HAZARDS + POWER-UPS ===== */
 let parts = [], gremlins = [], bolts = [], powerups = [], popups = [];
@@ -890,10 +884,29 @@ function updateObjects() {
 function drawObjects() {
   const fr = Game.frame;
 
-  parts.forEach(p => {
-    const by = p.y + Math.sin((fr + p.bob * 10) / 10) * 1.5;
-    spr("part", () => drawBox(p.x, by, p.w, p.h, "#c0c0c0"), p.x, by, p.kind);
+  parts.forEach(p => Sprites.part(p.x - 3, p.y - 3, p.kind, fr + p.bob * 10));
+
+  const PU = { wrench: "hammer", clock: "clock", heart: "life" };
+  powerups.forEach(p => {
+    if (p.life < 120 && Math.floor(p.life / 6) % 2) return; /* blink before vanishing */
+    Sprites.powerup(p.x - 2, p.y - 4, PU[p.type], fr);
   });
+
+  gremlins.forEach(g => {
+    ctx.globalAlpha = g.stunned > 0 ? 0.4 : (freezeTimer > 0 ? 0.7 : 1);
+    Sprites.gremlin(g.x - 5, g.y - 10, g.dir, g.animT);
+    ctx.globalAlpha = 1;
+  });
+
+  bolts.forEach(b => drawBox(b.x, b.y, b.w, b.h, "#aaa"));
+
+  ctx.font = "8px monospace"; ctx.textAlign = "center";
+  popups.forEach(p => {
+    ctx.fillStyle = `rgba(255,255,255,${p.t / 40})`;
+    ctx.fillText(p.text, p.x + 5, p.y);
+  });
+  ctx.textAlign = "left";
+}
 
   powerups.forEach(p => {
     if (p.life < 120 && Math.floor(p.life / 6) % 2) return; /* blink before vanishing */
@@ -927,14 +940,25 @@ Game.frame    = Game.frame    || 0;
 Game.timer    = 0;                          /* bonus countdown, in frames */
 Game.stateT   = 0;                          /* frames spent in the current state */
 Game.paused   = false;
-Game.hiScore  = +(localStorage.getItem("monkeyWrenchHi") || 0);
+
+Game.hiScore  = +(localStorage.getItem("mw_hi") || 0);   /* same key as Part 1 */
 
 const LEVEL_TIME = 60 * 90;                 /* 90 seconds at 60 fps */
 
 function setState(s) { Game.state = s; Game.stateT = 0; }
 
+function showTitle() {
+  setState("title");
+  document.getElementById("hiScore").textContent =
+    "HI-SCORE " + String(Game.hiScore).padStart(6, "0");
+  titleEl.classList.remove("hidden");
+}
+
 function startGame() {
-  Game.score = 0; Game.lives = 3; Game.level = 1;
+  titleEl.classList.add("hidden");
+  hideMessage();
+  Game.score = 0; Game.lives = 3; Game.level = 1; Game.paused = false;
+  Sound.start();
   startLevel(1);
 }
 
@@ -945,40 +969,73 @@ function startLevel(n) {
   resetFrankie();
   Game.timer = LEVEL_TIME;
   setState("playing");
+  Sound.startMusic();
 }
 
 function saveHiScore() {
   if (Game.score > Game.hiScore) {
     Game.hiScore = Game.score;
-    try { localStorage.setItem("monkeyWrenchHi", Game.hiScore); } catch (e) {}
+    try { localStorage.setItem("mw_hi", Game.hiScore); } catch (e) {}
   }
 }
 
-/* ---- Start / pause controls (Enter, P, click or tap) ---- */
+/* Enter or tap starts the game; after game over, it returns to the title screen */
 function pressStart() {
   unlockAudio();
   if (Game.state === "title") startGame();
-  else if (Game.state === "gameover" && Game.stateT > 60) setState("title");
+  else if (Game.state === "gameover" && Game.stateT > 60) showTitle();
 }
-window.addEventListener("keydown", e => {
-  if (e.code === "Enter") pressStart();
-  if (e.code === "KeyP" && Game.state === "playing") Game.paused = !Game.paused;
-});
+window.addEventListener("keydown", e => { if (e.code === "Enter") pressStart(); });
 canvas.addEventListener("pointerdown", pressStart);
 
-/* ---- Update ---- */
+
 function update() {
   Game.frame++;
   Game.stateT++;
 
+  /* Pause: P, Esc or the touch PAUSE button (all set by Part 1) */
+  if (Input.pausePressed) {
+    Input.pausePressed = false;
+    if (Game.state === "playing") {
+      Game.paused = !Game.paused;
+      if (Game.paused) Sound.stopMusic(); else Sound.startMusic();
+    }
+  }
+
   if (Game.state !== "playing" || Game.paused) {
-    /* Level-clear screen moves on by itself after about 3 seconds */
     if (Game.state === "levelclear" && Game.stateT > 180) startLevel(Game.level + 1);
     return;
   }
 
   updateFrankie();
   updateObjects();
+
+  if (!frankie.dead && --Game.timer <= 0) { frankie.invuln = 0; killFrankie(); }
+
+  if (frankie.dead && frankie.deadTimer > 90) {
+    Game.lives--;
+    if (Game.lives <= 0) {
+      saveHiScore();
+      Sound.gameover();
+      setState("gameover");
+    } else {
+      while (parts.length < machine.need - machine.have + 1) spawnPart();
+      bolts = [];
+      resetFrankie();
+      Game.timer = Math.max(Game.timer, 60 * 30);
+      Sound.startMusic();
+    }
+  }
+
+  if (machine.fixed && Game.state === "playing") {
+    const bonus = Math.floor(Game.timer / 60) * 10 + 1000;
+    addPoints(bonus);
+    Game.lastBonus = bonus;
+    saveHiScore();
+    Sound.levelclear();
+    setState("levelclear");
+  }
+}
 
   /* Bonus timer: running out costs a life */
   if (!frankie.dead && --Game.timer <= 0) { frankie.invuln = 0; killFrankie(); }
