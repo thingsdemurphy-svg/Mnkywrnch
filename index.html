@@ -906,27 +906,6 @@ function drawObjects() {
     ctx.fillText(p.text, p.x + 5, p.y);
   });
   ctx.textAlign = "left";
-}
-
-  powerups.forEach(p => {
-    if (p.life < 120 && Math.floor(p.life / 6) % 2) return; /* blink before vanishing */
-    const colors = { wrench: "#ffd700", clock: "#4fc3f7", heart: "#ff4d6d" };
-    spr("powerup", () => drawBox(p.x, p.y, p.w, p.h, colors[p.type]), p.x, p.y, p.type, fr);
-  });
-
-  gremlins.forEach(g => {
-    spr("gremlin", () => drawBox(g.x, g.y, g.w, g.h, g.stunned ? "#777" : "#5cd65c"),
-        g.x, g.y, g.dir, Math.floor(g.animT / 8) % 2, g.stunned > 0, freezeTimer > 0);
-  });
-
-  bolts.forEach(b => spr("bolt", () => drawBox(b.x, b.y, b.w, b.h, "#999"), b.x, b.y));
-
-  ctx.font = "8px monospace"; ctx.textAlign = "center";
-  popups.forEach(p => {
-    ctx.fillStyle = `rgba(255,255,255,${p.t / 40})`;
-    ctx.fillText(p.text, p.x + 5, p.y);
-  });
-}
 /* ===== END OF PART 4C — paste Part 4D directly below this line ===== */
 /* ===== PART 4D: GAME LOOP, SCORING + SCREENS ===== */
 
@@ -1036,37 +1015,6 @@ function update() {
     setState("levelclear");
   }
 }
-
-  /* Bonus timer: running out costs a life */
-  if (!frankie.dead && --Game.timer <= 0) { frankie.invuln = 0; killFrankie(); }
-
-  /* Death → lose a life after a short pause */
-  if (frankie.dead && frankie.deadTimer > 90) {
-    Game.lives--;
-    if (Game.lives <= 0) {
-      saveHiScore();
-      Sound.gameover && Sound.gameover();
-      setState("gameover");
-    } else {
-      /* Carried parts are lost, so put them back in the level */
-      while (parts.length < machine.need - machine.have + 1) spawnPart();
-      bolts = [];
-      resetFrankie();
-      Game.timer = Math.max(Game.timer, 60 * 30);
-    }
-  }
-
-  /* Machine fixed → level complete with a time bonus */
-  if (machine.fixed && Game.state === "playing") {
-    const bonus = Math.floor(Game.timer / 60) * 10 + 1000;
-    addPoints(bonus);
-    Game.lastBonus = bonus;
-    saveHiScore();
-    Sound.levelclear && Sound.levelclear();
-    setState("levelclear");
-  }
-}
-
 /* ---- Drawing helpers ---- */
 function text(str, x, y, size, color, align) {
   ctx.font = `${size}px monospace`;
@@ -1080,6 +1028,7 @@ function drawHUD() {
   text("SCORE " + Game.score, 6, 16, 10, "#fff", "left");
   text("HI " + Game.hiScore, W / 2, 16, 10, "#ffd700");
   text("LV " + Game.level + "  ♥" + Game.lives, W - 6, 16, 10, "#ff4d6d", "right");
+
 
   /* Time bar, which turns red when time is low */
   const t = Math.max(0, Game.timer / LEVEL_TIME);
