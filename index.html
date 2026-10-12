@@ -360,4 +360,43 @@ function loop(){
  requestAnimationFrame(loop);
 }
 loop();
+// ===== Mobile / touch support =====
+(function(){
+ // Make the page scale properly on phones
+ const m=document.createElement('meta');m.name='viewport';
+ m.content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no';
+ document.head.appendChild(m);
+ C.style.maxWidth='100%';C.style.height='auto';C.style.touchAction='none';
+ document.body.style.userSelect='none';
+ document.body.style.webkitUserSelect='none';
+
+ // Tap the game screen = ENTER (start / next level / retry)
+ C.addEventListener('pointerdown',e=>{e.preventDefault();K.Enter=1;setTimeout(()=>K.Enter=0,100)});
+
+ // Build the on-screen controls
+ const pad=document.createElement('div');
+ pad.style.cssText='display:flex;justify-content:space-between;width:100%;max-width:800px;padding:10px;box-sizing:border-box;touch-action:none';
+ const css='width:64px;height:64px;margin:4px;font-size:28px;border-radius:14px;border:2px solid #666;background:#333;color:#fff;touch-action:none';
+ function btn(label,code){
+  const b=document.createElement('button');b.textContent=label;b.style.cssText=css;
+  const on=e=>{e.preventDefault();K[code]=1;b.style.background='#666'};
+  const off=e=>{e.preventDefault();K[code]=0;b.style.background='#333'};
+  b.addEventListener('pointerdown',on);
+  b.addEventListener('pointerup',off);
+  b.addEventListener('pointerleave',off);
+  b.addEventListener('pointercancel',off);
+  b.addEventListener('contextmenu',e=>e.preventDefault());
+  return b;
+ }
+ const left=document.createElement('div'),right=document.createElement('div');
+ left.style.cssText=right.style.cssText='display:flex;align-items:center';
+ left.append(btn('◀','ArrowLeft'),btn('▶','ArrowRight'));
+ const ud=document.createElement('div');ud.style.cssText='display:flex;flex-direction:column';
+ ud.append(btn('▲','ArrowUp'),btn('▼','ArrowDown'));
+ const jump=btn('JUMP','Space');jump.style.width='90px';jump.style.fontSize='18px';
+ right.append(ud,jump);
+ pad.append(left,right);
+ document.body.appendChild(pad);
+})();
+                         
 </script></body></html>
