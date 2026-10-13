@@ -113,8 +113,9 @@ function loadLevel(){
  machine={x:top.x+top.w/2-30,y:top.y,w:60,h:50};
  need=4+Math.min(level,6);fixed=0;
  pieces=[];for(let i=0;i<need;i++)pieces.push(placeRandom({s:'loose'}));
+ // ======= Enemies =========
  enemies=[];const sp=1+level*0.15;
- const nm=1+Math.floor(level/2),ng=1+Math.floor((level+1)/2),nmu=level>=2?1:0;
+ const nm=2+Math.floor(level/2),ng=2+Math.floor((level+1)/2),nmu=level>=2?1:0;
  for(let i=0;i<nm;i++)enemies.push(mkEnemy('monkey',sp));
  for(let i=0;i<ng;i++)enemies.push(mkEnemy('gremlin',sp*1.2));
  for(let i=0;i<nmu;i++)enemies.push(mkEnemy('murphy',sp*0.8));
